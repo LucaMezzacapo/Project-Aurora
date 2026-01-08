@@ -10,6 +10,7 @@ print("Waiting heartbeat...")
 hb = connection.wait_heartbeat(timeout=15)
 print("Heartbeat:", hb)
 
+# Information messages
 while True:
     msg = connection.recv_match(blocking=False)
     
@@ -29,4 +30,4 @@ while True:
         print(f"Roll = {roll_deg}, Pitch = {pitch_deg}, Yaw = {yaw_deg}")
 
     else:
-        time.sleep(0.02)
+        time.sleep(0.002)
