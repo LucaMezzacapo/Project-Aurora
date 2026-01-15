@@ -5,7 +5,7 @@ from pymavlink import mavutil;
 
 
 # Drone connection
-connection = mavutil.mavlink_connection("tcp:206.189.60.90:41023")
+connection = mavutil.mavlink_connection("tcp:206.189.60.90:60321")
 print("Waiting heartbeat...")
 hb = connection.wait_heartbeat(timeout=15)
 print("Heartbeat:", hb)
