@@ -38,5 +38,14 @@ while True:
         groundspeed_km = msg.groundspeed * 3.6
         print(f"Ground speed = {groundspeed_km}km/h")
 
+    elif msg.get_type() == 'BATTERY_VOLTAGE':
+        voltage = msg.voltage / 1000.0
+        print(f"Battery Voltage: {voltage}V")
+    
+    elif msg.get_type() == 'BATTERY_CURRENT':
+        current = msg.current / 100.0
+        print(f"Battery Current: {current}A")
+
+
     else:
         time.sleep(0.002)
