@@ -126,7 +126,7 @@ export default function App() {
           <MetricCard
             label="Ground Speed"
             value={tele.groundSpeed.toFixed(1)}
-            unit="m/s"
+            unit="km/h"
             trend={tele.groundSpeed > 10 ? 'up' : 'down'}
             status="good"
           />

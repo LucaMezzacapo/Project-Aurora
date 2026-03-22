@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # MAvlink reader
 import math
 import time
@@ -49,4 +49,3 @@ while True:
 
 
     else:
-=======
