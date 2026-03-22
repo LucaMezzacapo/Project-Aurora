@@ -48,28 +48,64 @@ export default function App() {
   });
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws/telemetry");
+    ws.onopen = () => {
+      console.log("Telemetry websocket connected");
+    };
+  
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
       const now = formatTime(new Date());
-
+  
       setTele(prev => {
-        const voltage    = Math.max(10.5, Math.min(12.6, prev.voltage + (Math.random() - 0.5) * 0.05));
-        const current    = Math.max(0.5,  Math.min(5.0,  prev.current + (Math.random() - 0.5) * 0.1));
-        const altitude   = Math.max(0,    prev.altitude + (Math.random() - 0.48) * 1.5);
-        const heading    = (prev.heading + (Math.random() - 0.5) * 2 + 360) % 360;
-        const groundSpeed= Math.max(0, Math.min(50, prev.groundSpeed + (Math.random() - 0.5) * 0.5));
-        const pitch      = Math.max(-30, Math.min(30, prev.pitch + (Math.random() - 0.5) * 0.5));
-        const roll       = Math.max(-30, Math.min(30, prev.roll  + (Math.random() - 0.5) * 0.5));
-        const yaw        = (prev.yaw + (Math.random() - 0.5) * 1.5 + 360) % 360;
-        const latitude   = prev.latitude  + (Math.random() - 0.5) * 0.0001;
-        const longitude  = prev.longitude + (Math.random() - 0.5) * 0.0001;
-
-        setBatteryHistory(h => [...h.slice(-(MAX_HISTORY - 1)), { time: now, voltage, current }]);
-        setAltitudeHistory(h => [...h.slice(-(MAX_HISTORY - 1)), { time: now, altitude }]);
-
-        return { ...prev, voltage, current, altitude, heading, groundSpeed, pitch, roll, yaw, latitude, longitude };
+        const nextTele = {
+          ...prev,
+          latitude: data.latitude ?? prev.latitude,
+          longitude: data.longitude ?? prev.longitude,
+          groundSpeed: data.groundspeed_km ?? prev.groundSpeed,
+          heading: data.yaw ?? prev.heading,
+          pitch: data.pitch ?? prev.pitch,
+          roll: data.roll ?? prev.roll,
+          yaw: data.yaw ?? prev.yaw,
+          altitude: data.altitude ?? prev.altitude,
+          voltage: data.battery_voltage ?? prev.voltage,
+          current: data.battery_current ?? prev.current,
+          rssi: prev.rssi,
+          satellites: prev.satellites,
+        };
+  
+        setBatteryHistory(h => [
+          ...h.slice(-(MAX_HISTORY - 1)),
+          {
+            time: now,
+            voltage: nextTele.voltage,
+            current: nextTele.current,
+          },
+        ]);
+  
+        setAltitudeHistory(h => [
+          ...h.slice(-(MAX_HISTORY - 1)),
+          {
+            time: now,
+            altitude: nextTele.altitude,
+          },
+        ]);
+  
+        return nextTele;
       });
-    }, 1000);
-    return () => clearInterval(interval);
+    };
+  
+    ws.onerror = (error) => {
+      console.error("Telemetry websocket error:", error);
+    };
+  
+    ws.onclose = () => {
+      console.log("Telemetry websocket disconnected");
+    };
+  
+    return () => {
+      ws.close();
+    };
   }, []);
 
   const batteryStatus = tele.voltage > 11.5 ? 'good' : tele.voltage > 10.8 ? 'warning' : 'critical';
