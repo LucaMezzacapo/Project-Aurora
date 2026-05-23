@@ -1,10 +1,11 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface BatteryChartProps {
-  data: Array<{ time: string; voltage: number; current: number }>;
+  data: Array<{ time: string; voltage: number | null; current: number | null }>;
+  live: boolean;
 }
 
-export function BatteryChart({ data }: BatteryChartProps) {
+export function BatteryChart({ data, live }: BatteryChartProps) {
   return (
     <div className="chart-panel">
       <div className="panel-header">
@@ -13,8 +14,8 @@ export function BatteryChart({ data }: BatteryChartProps) {
           Battery Monitoring
         </span>
         <span className="panel-badge">
-          <span className="dot dot-green"></span>
-          Live Data
+          <span className={`dot ${live ? 'dot-green' : 'dot-dim'}`}></span>
+          {live ? 'Live Data' : 'No Data'}
         </span>
       </div>
 

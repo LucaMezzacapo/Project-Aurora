@@ -1,10 +1,11 @@
 interface OrientationPanelProps {
-  pitch: number;
-  roll: number;
-  yaw: number;
+  pitch: number | null;
+  roll: number | null;
+  yaw: number | null;
+  live: boolean;
 }
 
-export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
+export function OrientationPanel({ pitch, roll, yaw, live }: OrientationPanelProps) {
   return (
     <div className="panel">
       <div className="panel-header">
@@ -13,8 +14,8 @@ export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
           Advanced Orientation
         </span>
         <span className="panel-badge">
-          <span className="dot dot-orange"></span>
-          IMU Active
+          <span className={`dot ${live ? 'dot-orange' : 'dot-dim'}`}></span>
+          {live ? 'IMU Active' : 'IMU Offline'}
         </span>
       </div>
 
@@ -26,12 +27,12 @@ export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
             <div className="orient-center-ref" />
             <div
               className="orient-horizon pitch-line"
-              style={{ top: `${50 - (pitch / 60) * 100}%` }}
+              style={{ top: `${50 - ((pitch ?? 0) / 60) * 100}%` }}
             />
             <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 9, color: 'var(--text-dim)' }}>+30°</span>
             <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: 9, color: 'var(--text-dim)' }}>-30°</span>
           </div>
-          <div className="orient-value">{pitch.toFixed(1)}°</div>
+          <div className="orient-value">{pitch == null ? '—' : `${pitch.toFixed(1)}°`}</div>
         </div>
 
         {/* Roll */}
@@ -41,12 +42,12 @@ export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
             <div className="orient-center-ref" />
             <div
               className="orient-horizon roll-line"
-              style={{ transform: `rotate(${roll}deg)` }}
+              style={{ transform: `rotate(${roll ?? 0}deg)` }}
             />
             <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 9, color: 'var(--text-dim)' }}>L 30°</span>
             <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 9, color: 'var(--text-dim)' }}>R 30°</span>
           </div>
-          <div className="orient-value">{roll.toFixed(1)}°</div>
+          <div className="orient-value">{roll == null ? '—' : `${roll.toFixed(1)}°`}</div>
         </div>
 
         {/* Yaw */}
@@ -61,14 +62,14 @@ export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
               <span className="yaw-deg-label yaw-deg-270">270°</span>
               <div
                 className="yaw-indicator-wrap"
-                style={{ transform: `rotate(${yaw}deg)` }}
+                style={{ transform: `rotate(${yaw ?? 0}deg)` }}
               >
                 <div className="yaw-bar" />
               </div>
               <div className="yaw-center-dot" />
             </div>
           </div>
-          <div className="orient-value">{yaw.toFixed(1)}°</div>
+          <div className="orient-value">{yaw == null ? '—' : `${yaw.toFixed(1)}°`}</div>
         </div>
       </div>
 
@@ -78,7 +79,7 @@ export function OrientationPanel({ pitch, roll, yaw }: OrientationPanelProps) {
           <div
             className="ah-inner"
             style={{
-              transform: `translateY(${pitch * 2}px) rotate(${roll}deg)`,
+              transform: `translateY(${(pitch ?? 0) * 2}px) rotate(${roll ?? 0}deg)`,
             }}
           >
             <div className="ah-sky" />

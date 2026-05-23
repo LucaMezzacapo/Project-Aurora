@@ -142,6 +142,8 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 .dot-amber { background: var(--accent-amber); animation: pulse 2s infinite; }
 .dot-purple{ background: var(--accent-purple);animation: pulse 2s infinite; }
 .dot-orange{ background: #fb923c;             animation: pulse 2s infinite; }
+.dot-red   { background: var(--accent-red);   animation: pulse 2s infinite; }
+.dot-dim   { background: var(--text-dim); }
 
 .header-sep { color: var(--border-light); }
 
@@ -470,8 +472,6 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 }
 
 .compass-needle {
-  width: 0;
-  height: 0;
   position: relative;
   display: flex;
   flex-direction: column;
