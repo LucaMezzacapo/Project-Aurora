@@ -44,6 +44,16 @@ function fmt(value: number | null, digits: number) {
   return value == null ? DASH : value.toFixed(digits);
 }
 
+function formatAgo(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s === 0) return 'Now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m ago`;
+}
+
 export default function App() {
   const [batteryHistory, setBatteryHistory] = useState<Array<{ time: string; voltage: number | null; current: number | null }>>([]);
 
@@ -65,6 +75,8 @@ export default function App() {
   });
 
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [lastContact, setLastContact] = useState<number | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +99,9 @@ export default function App() {
         const lu = typeof data.last_update === 'number' ? data.last_update : null;
         if (seenRef.current && lu !== null && lu !== lastUpdateRef.current) {
           lastChangeRef.current = Date.now();
+        }
+        if (lu !== null && lu !== lastUpdateRef.current) {
+          setLastContact(Date.now());
         }
         seenRef.current = true;
         lastUpdateRef.current = lu;
@@ -151,8 +166,14 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const batteryStatus = tele.voltage == null ? 'good' : tele.voltage > 11.5 ? 'good' : tele.voltage > 10.8 ? 'warning' : 'critical';
   const connected = status === 'connected';
+  const lastContactLabel = lastContact == null ? DASH : formatAgo(nowTs - lastContact);
 
   return (
     <div className="dashboard">
@@ -174,6 +195,8 @@ export default function App() {
           <span>RSSI: {tele.rssi ?? DASH} dBm</span>
           <span className="header-sep">|</span>
           <span>SAT: {tele.satellites ?? DASH}</span>
+          <span className="header-sep">|</span>
+          <span>Last contact: {lastContactLabel}</span>
         </div>
       </header>
 
