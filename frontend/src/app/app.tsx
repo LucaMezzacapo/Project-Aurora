@@ -7,6 +7,7 @@ import { NavigationPanel } from './components/navigation-panel';
 import { OrientationPanel } from './components/orientation-panel';
 
 const MAX_HISTORY = 30;
+const MAX_TRAIL = 300;
 const DASH = '—';
 const WS_URL = "ws://127.0.0.1:8000/ws/telemetry";
 const RECONNECT_DELAY = 2000;
@@ -34,6 +35,8 @@ type Telemetry = {
   current: number | null;
   rssi: number | null;
   satellites: number | null;
+  fixType: number | null;
+  hdop: number | null;
 };
 
 function formatTime(date: Date) {
@@ -42,6 +45,15 @@ function formatTime(date: Date) {
 
 function fmt(value: number | null, digits: number) {
   return value == null ? DASH : value.toFixed(digits);
+}
+
+const TREND_WINDOW = 15; // ~3s of samples at 5 Hz
+
+function trendOf(samples: number[], deadband: number): 'up' | 'down' | undefined {
+  if (samples.length < TREND_WINDOW) return undefined;
+  const delta = samples[samples.length - 1] - samples[0];
+  if (Math.abs(delta) < deadband) return undefined;
+  return delta > 0 ? 'up' : 'down';
 }
 
 function formatAgo(ms: number) {
@@ -72,7 +84,11 @@ export default function App() {
     current: null,
     rssi: null,
     satellites: null,
+    fixType: null,
+    hdop: null,
   });
+
+  const [trail, setTrail] = useState<Array<[number, number]>>([]);
 
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastContact, setLastContact] = useState<number | null>(null);
@@ -83,6 +99,9 @@ export default function App() {
   const lastUpdateRef = useRef<number | null>(null);
   const lastChangeRef = useRef(0);
   const seenRef = useRef(false);
+  const trendRef = useRef<{ altitude: number[]; voltage: number[]; current: number[]; speed: number[] }>({
+    altitude: [], voltage: [], current: [], speed: [],
+  });
 
   useEffect(() => {
     let closed = false;
@@ -121,9 +140,22 @@ export default function App() {
           voltage: data.battery_voltage ?? prev.voltage,
           current: data.battery_current ?? prev.current,
           rssi: prev.rssi,
-          satellites: prev.satellites,
+          satellites: data.satellites ?? prev.satellites,
+          fixType: data.fix_type ?? prev.fixType,
+          hdop: data.hdop ?? prev.hdop,
         };
-  
+
+        const { latitude: lat, longitude: lon } = nextTele;
+        if (lat != null && lon != null && (lat !== prev.latitude || lon !== prev.longitude)) {
+          setTrail(t => [...t.slice(-(MAX_TRAIL - 1)), [lat, lon]]);
+        }
+
+        const s = trendRef.current;
+        if (nextTele.altitude != null) s.altitude = [...s.altitude.slice(-(TREND_WINDOW - 1)), nextTele.altitude];
+        if (nextTele.voltage != null) s.voltage = [...s.voltage.slice(-(TREND_WINDOW - 1)), nextTele.voltage];
+        if (nextTele.current != null) s.current = [...s.current.slice(-(TREND_WINDOW - 1)), nextTele.current];
+        if (nextTele.groundSpeed != null) s.speed = [...s.speed.slice(-(TREND_WINDOW - 1)), nextTele.groundSpeed];
+
         setBatteryHistory(h => [
           ...h.slice(-(MAX_HISTORY - 1)),
           {
@@ -172,6 +204,7 @@ export default function App() {
   }, []);
 
   const batteryStatus = tele.voltage == null ? 'good' : tele.voltage > 11.5 ? 'good' : tele.voltage > 10.8 ? 'warning' : 'critical';
+  const trends = trendRef.current;
   const connected = status === 'connected';
   const lastContactLabel = lastContact == null ? DASH : formatAgo(nowTs - lastContact);
 
@@ -194,8 +227,6 @@ export default function App() {
           <span className="header-sep">|</span>
           <span>RSSI: {tele.rssi ?? DASH} dBm</span>
           <span className="header-sep">|</span>
-          <span>SAT: {tele.satellites ?? DASH}</span>
-          <span className="header-sep">|</span>
           <span>Last contact: {lastContactLabel}</span>
         </div>
       </header>
@@ -209,28 +240,28 @@ export default function App() {
             label="Altitude"
             value={fmt(tele.altitude, 1)}
             unit="m"
-            trend={tele.altitude == null ? undefined : 'up'}
+            trend={trendOf(trends.altitude, 0.5)}
             status="good"
           />
           <MetricCard
             label="Battery Voltage"
             value={fmt(tele.voltage, 2)}
             unit="V"
-            trend={tele.voltage == null ? undefined : tele.voltage > 11.8 ? 'up' : 'down'}
+            trend={trendOf(trends.voltage, 0.05)}
             status={batteryStatus}
           />
           <MetricCard
             label="Battery Current"
             value={fmt(tele.current, 2)}
             unit="A"
-            trend={tele.current == null ? undefined : 'up'}
+            trend={trendOf(trends.current, 0.2)}
             status={tele.current != null && tele.current > 4.0 ? 'warning' : 'good'}
           />
           <MetricCard
             label="Ground Speed"
             value={fmt(tele.groundSpeed, 1)}
             unit="km/h"
-            trend={tele.groundSpeed == null ? undefined : tele.groundSpeed > 10 ? 'up' : 'down'}
+            trend={trendOf(trends.speed, 1.0)}
             status="good"
           />
         </div>
@@ -243,7 +274,16 @@ export default function App() {
 
         {/* Row 3: GPS | Navigation | Orientation */}
         <div className="row-3">
-          <GpsPanel latitude={tele.latitude} longitude={tele.longitude} live={connected && tele.latitude != null && tele.longitude != null} />
+          <GpsPanel
+            latitude={tele.latitude}
+            longitude={tele.longitude}
+            heading={tele.heading}
+            trail={trail}
+            fixType={tele.fixType}
+            satellites={tele.satellites}
+            hdop={tele.hdop}
+            live={connected && tele.latitude != null && tele.longitude != null}
+          />
           <NavigationPanel groundSpeed={tele.groundSpeed} heading={tele.heading} live={connected && tele.groundSpeed != null && tele.heading != null} />
           <OrientationPanel pitch={tele.pitch} roll={tele.roll} yaw={tele.yaw} live={connected && tele.pitch != null && tele.roll != null && tele.yaw != null} />
         </div>

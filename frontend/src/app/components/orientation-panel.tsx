@@ -79,7 +79,7 @@ export function OrientationPanel({ pitch, roll, yaw, live }: OrientationPanelPro
           <div
             className="ah-inner"
             style={{
-              transform: `translateY(${(pitch ?? 0) * 2}px) rotate(${roll ?? 0}deg)`,
+              transform: `translateY(${Math.max(-60, Math.min(60, (pitch ?? 0) * 2))}px) rotate(${roll ?? 0}deg)`,
             }}
           >
             <div className="ah-sky" />

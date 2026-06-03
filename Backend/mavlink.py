@@ -30,6 +30,9 @@ telemetryInfo = {
     "groundspeed_km": None,
     "battery_voltage": None,
     "battery_current": None,
+    "fix_type": None,
+    "satellites": None,
+    "hdop": None,
     "last_update": None,
 }
 
@@ -37,7 +40,8 @@ telemetry_lock = threading.Lock()
 
 # Drone connection
 def mavlinkReader():
-    connection = mavutil.mavlink_connection("tcp:206.189.60.90:34973")
+    # Local mock sim (Backend/sim.py). For DroneSim use tcp:206.189.60.90:<sim port>
+    connection = mavutil.mavlink_connection("tcp:127.0.0.1:5760")
     print("Waiting heartbeat...")
     hb = connection.wait_heartbeat(timeout=15)
     print("Heartbeat:", hb)
@@ -64,6 +68,9 @@ def mavlinkReader():
             battery_percentage = msg.battery_remaining
             # print(f"Battery Percentage: {battery_percentage}%")
             telemetryInfo["battery_percentage"] = battery_percentage
+            # 65535 / -1 are MAVLink sentinels for "unknown"
+            telemetryInfo["battery_voltage"] = None if msg.voltage_battery == 65535 else msg.voltage_battery / 1000.0
+            telemetryInfo["battery_current"] = None if msg.current_battery == -1 else msg.current_battery / 100.0
             
         elif msg.get_type() == 'ATTITUDE':
             roll_deg = math.degrees(msg.roll)
@@ -79,15 +86,12 @@ def mavlinkReader():
             # print(f"Ground speed = {groundspeed_km}km/h")
             telemetryInfo["groundspeed_km"] = groundspeed_km
 
-        elif msg.get_type() == 'BATTERY_VOLTAGE':
-            voltage = msg.voltage / 1000.0
-            # print(f"Battery Voltage: {voltage}V")
-            telemetryInfo["battery_voltage"] = voltage
-        
-        elif msg.get_type() == 'BATTERY_CURRENT':
-            current = msg.current / 100.0
-            # print(f"Battery Current: {current}A")
-            telemetryInfo["battery_current"] = current
+        elif msg.get_type() == 'GPS_RAW_INT':
+            # fix_type: 0-1 = no fix, 2 = 2D, 3 = 3D, 4+ = DGPS/RTK
+            telemetryInfo["fix_type"] = msg.fix_type
+            # 255 / 65535 are MAVLink sentinels for "unknown"
+            telemetryInfo["satellites"] = None if msg.satellites_visible == 255 else msg.satellites_visible
+            telemetryInfo["hdop"] = None if msg.eph == 65535 else msg.eph / 100.0
         
         telemetryInfo["last_update"] = time.time()
         
