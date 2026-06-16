@@ -181,6 +181,18 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
   gap: 0;
 }
 
+.button {
+  cursor: pointer;
+  border: none;
+}
+
+.button-panel {
+  background-color: darkred;
+  color: white;
+  padding: 10px 16px;
+  border-radius: 8px;
+}
+
 .panel-header {
   display: flex;
   align-items: center;

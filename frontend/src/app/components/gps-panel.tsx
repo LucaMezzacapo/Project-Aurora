@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import Button from "./button"
 
 // Simulator currently flies at UK coordinates; used until the first fix arrives
 const DEFAULT_CENTER: [number, number] = [51.5074, -0.1278];
@@ -27,6 +28,12 @@ interface GpsPanelProps {
   hdop: number | null;
   live: boolean;
 }
+
+
+function startMission() {
+  console.log("Mission started");
+}
+
 
 function FollowDrone({ position, paused, onPause }: { position: [number, number] | null; paused: boolean; onPause: () => void }) {
   const map = useMap();
@@ -67,6 +74,8 @@ export function GpsPanel({ latitude, longitude, heading, trail, fixType, satelli
           <span style={{ color: 'var(--accent-blue)' }}>📍</span>
           GPS Tracking
         </span>
+
+
         <span className="panel-badge">
           <span style={{ color: fixColor, fontSize: '12px' }}>🛰</span>
           <span style={{ color: fixColor }}>{fixLabel}</span>
@@ -106,6 +115,9 @@ export function GpsPanel({ latitude, longitude, heading, trail, fixType, satelli
           <div className="coord-value">{hdop == null ? '—' : hdop.toFixed(2)}</div>
         </div>
       </div>
+
+        <br></br>
+      <Button className="button-panel" title="Start Mission" onClick={startMission}  />
 
       <div className="panel-footer" style={{ marginTop: '12px' }}>Real-time GPS coordinates</div>
     </div>
