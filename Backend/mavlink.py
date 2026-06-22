@@ -3,8 +3,10 @@ import math
 import asyncio
 import threading
 import time
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
 from pymavlink import mavutil;
 
 # FastAPI
@@ -37,6 +39,25 @@ telemetryInfo = {
 }
 
 telemetry_lock = threading.Lock()
+
+# ─── Mission state ───
+# status: idle | running | paused | emergency_stop (paused/e-stop owned by teammates)
+mission_state = {
+    "status": "idle",
+    "waypoints": [],
+}
+mission_lock = threading.Lock()
+
+
+class Waypoint(BaseModel):
+    latitude: float
+    longitude: float
+    altitude: float
+    order: int
+
+
+class MissionUpload(BaseModel):
+    waypoints: List[Waypoint]
 
 # Drone connection
 def mavlinkReader():
@@ -106,6 +127,51 @@ async def root():
     return {"status": "backend running"}
 
 
+@app.get("/mission/status")
+async def mission_status():
+    with mission_lock:
+        return {
+            "status": mission_state["status"],
+            "waypoint_count": len(mission_state["waypoints"]),
+        }
+
+
+@app.post("/mission/upload")
+async def mission_upload(payload: MissionUpload):
+    if not payload.waypoints:
+        raise HTTPException(status_code=400, detail="Mission must contain at least one waypoint.")
+
+    seen_orders = set()
+    for wp in payload.waypoints:
+        if not (-90 <= wp.latitude <= 90):
+            raise HTTPException(status_code=400, detail=f"Invalid latitude: {wp.latitude}")
+        if not (-180 <= wp.longitude <= 180):
+            raise HTTPException(status_code=400, detail=f"Invalid longitude: {wp.longitude}")
+        if wp.altitude < 0:
+            raise HTTPException(status_code=400, detail=f"Invalid altitude: {wp.altitude}")
+        if wp.order < 1:
+            raise HTTPException(status_code=400, detail=f"Invalid waypoint order: {wp.order}")
+        if wp.order in seen_orders:
+            raise HTTPException(status_code=400, detail=f"Duplicate waypoint order: {wp.order}")
+        seen_orders.add(wp.order)
+
+    with mission_lock:
+        mission_state["waypoints"] = [wp.model_dump() for wp in payload.waypoints]
+    return {"status": "ok", "waypoint_count": len(payload.waypoints)}
+
+
+@app.post("/mission/start")
+async def mission_start():
+    with mission_lock:
+        if not mission_state["waypoints"]:
+            raise HTTPException(status_code=400, detail="No mission waypoints available. Upload a mission first.")
+        if mission_state["status"] == "running":
+            raise HTTPException(status_code=409, detail="A mission is already running.")
+        mission_state["status"] = "running"
+        count = len(mission_state["waypoints"])
+    return {"status": "running", "waypoint_count": count}
+
+
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -115,6 +181,8 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             with telemetry_lock:
                 snapshot = dict(telemetryInfo)
+            with mission_lock:
+                snapshot["mission_status"] = mission_state["status"]
 
             await websocket.send_json(snapshot)
             await asyncio.sleep(0.2)

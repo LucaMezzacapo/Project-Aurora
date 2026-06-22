@@ -5,13 +5,25 @@ import { GpsPanel } from './components/gps-panel';
 import { MetricCard } from './components/metric-card';
 import { NavigationPanel } from './components/navigation-panel';
 import { OrientationPanel } from './components/orientation-panel';
+import Button from './components/button';
+import { parseMissionFile, validateWaypoints, type Waypoint } from './mission';
 
 const MAX_HISTORY = 30;
 const MAX_TRAIL = 300;
 const DASH = '—';
 const WS_URL = "ws://127.0.0.1:8000/ws/telemetry";
+const API_URL = "http://127.0.0.1:8000";
 const RECONNECT_DELAY = 2000;
 const STALE_MS = 3000;
+
+type MissionStatus = 'idle' | 'running' | 'paused' | 'emergency_stop';
+
+const MISSION_LABEL: Record<MissionStatus, string> = {
+  idle: 'Idle',
+  running: 'Mission Running',
+  paused: 'Mission Paused',
+  emergency_stop: 'Emergency Stop Activated',
+};
 
 type ConnectionStatus = 'connecting' | 'connected' | 'stale' | 'disconnected';
 
@@ -71,21 +83,23 @@ export default function App() {
 
   const [altitudeHistory, setAltitudeHistory] = useState<Array<{ time: string; altitude: number | null }>>([]);
 
+  // Default to 0 so the dashboard reads 0 (not "—") when no sim is connected.
+  // Real telemetry overwrites these once the sim is running.
   const [tele, setTele] = useState<Telemetry>({
-    latitude: null,
-    longitude: null,
-    groundSpeed: null,
-    heading: null,
-    pitch: null,
-    roll: null,
-    yaw: null,
-    altitude: null,
-    voltage: null,
-    current: null,
-    rssi: null,
-    satellites: null,
-    fixType: null,
-    hdop: null,
+    latitude: 0,
+    longitude: 0,
+    groundSpeed: 0,
+    heading: 0,
+    pitch: 0,
+    roll: 0,
+    yaw: 0,
+    altitude: 0,
+    voltage: 0,
+    current: 0,
+    rssi: 0,
+    satellites: 0,
+    fixType: 0,
+    hdop: 0,
   });
 
   const [trail, setTrail] = useState<Array<[number, number]>>([]);
@@ -93,6 +107,14 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastContact, setLastContact] = useState<number | null>(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
+
+  // ─── Start Mission state ───
+  const [missionStatus, setMissionStatus] = useState<MissionStatus>('idle');
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+  const [missionFile, setMissionFile] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [missionMsg, setMissionMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +147,10 @@ export default function App() {
         seenRef.current = true;
         lastUpdateRef.current = lu;
         setStatus(lu !== null && Date.now() - lastChangeRef.current < STALE_MS ? 'connected' : 'stale');
+
+        if (typeof data.mission_status === 'string') {
+          setMissionStatus(data.mission_status as MissionStatus);
+        }
 
       setTele(prev => {
         const nextTele = {
@@ -208,6 +234,98 @@ export default function App() {
   const connected = status === 'connected';
   const lastContactLabel = lastContact == null ? DASH : formatAgo(nowTs - lastContact);
 
+  const handleMissionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    setMissionMsg(null);
+    try {
+      const text = await file.text();
+      const parsed = parseMissionFile(file.name, text);
+      const errors = validateWaypoints(parsed);
+      if (errors.length > 0) {
+        setWaypoints([]);
+        setMissionFile(null);
+        setMissionMsg({ kind: 'error', text: errors[0] });
+        return;
+      }
+      const res = await fetch(`${API_URL}/mission/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waypoints: parsed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || 'Upload failed.');
+      }
+      setWaypoints(parsed);
+      setMissionFile(file.name);
+      setMissionMsg({ kind: 'success', text: `Loaded ${parsed.length} waypoint(s) from ${file.name}.` });
+    } catch (err) {
+      setWaypoints([]);
+      setMissionFile(null);
+      setMissionMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Could not read mission file.' });
+    }
+  };
+
+  const handleStartMission = async () => {
+    setStarting(true);
+    setMissionMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/mission/start`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Failed to start mission.');
+      setMissionStatus('running');
+      setMissionMsg({ kind: 'success', text: 'Mission Running.' });
+    } catch (err) {
+      setMissionMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to start mission.' });
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const startDisabled = waypoints.length === 0 || missionStatus === 'running';
+
+  const missionControls = (
+    <div className="mission-controls">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.json"
+        onChange={handleMissionFile}
+        style={{ display: 'none' }}
+      />
+      <div className="mission-buttons">
+        <Button
+          title="Upload Mission File"
+          onClick={() => fileInputRef.current?.click()}
+          className="button-panel button-upload"
+        />
+        <Button
+          title="Start Mission"
+          onClick={handleStartMission}
+          loading={starting}
+          disabled={startDisabled}
+          className="button-panel button-start"
+        />
+      </div>
+      <div className="mission-info">
+        <span className="mission-status-label">Mission status:</span>{' '}
+        <span className={`mission-status-value mission-${missionStatus}`}>
+          {MISSION_LABEL[missionStatus]}
+        </span>
+        {missionFile && (
+          <span className="mission-file">
+            {' '}· {missionFile} ({waypoints.length} waypoint{waypoints.length === 1 ? '' : 's'})
+          </span>
+        )}
+      </div>
+      {missionMsg && (
+        <div className={`mission-msg mission-msg-${missionMsg.kind}`}>{missionMsg.text}</div>
+      )}
+    </div>
+  );
+
   return (
     <div className="dashboard">
       {/* Header */}
@@ -283,6 +401,7 @@ export default function App() {
             satellites={tele.satellites}
             hdop={tele.hdop}
             live={connected && tele.latitude != null && tele.longitude != null}
+            missionControls={missionControls}
           />
           <NavigationPanel groundSpeed={tele.groundSpeed} heading={tele.heading} live={connected && tele.groundSpeed != null && tele.heading != null} />
           <OrientationPanel pitch={tele.pitch} roll={tele.roll} yaw={tele.yaw} live={connected && tele.pitch != null && tele.roll != null && tele.yaw != null} />

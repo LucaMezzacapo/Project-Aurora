@@ -193,6 +193,74 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
   border-radius: 8px;
 }
 
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ─── Mission controls ─── */
+.mission-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mission-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.button-upload,
+.button-start {
+  flex: 1;
+  min-width: 130px;
+}
+
+.button-upload {
+  background-color: var(--bg-card-hover, #1f2937);
+  border: 1px solid var(--border, #374151);
+}
+
+.button-start {
+  background-color: var(--accent-green, #16a34a);
+}
+
+.mission-info {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.mission-status-value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mission-running { color: var(--accent-green, #16a34a); }
+.mission-paused { color: var(--accent-amber, #f59e0b); }
+.mission-emergency_stop { color: var(--accent-red, #ef4444); }
+
+.mission-file {
+  color: var(--text-dim);
+}
+
+.mission-msg {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.mission-msg-success {
+  color: var(--accent-green, #16a34a);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.mission-msg-error {
+  color: var(--accent-red, #ef4444);
+  background: rgba(239, 68, 68, 0.12);
+}
+
 .panel-header {
   display: flex;
   align-items: center;
