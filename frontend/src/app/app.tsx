@@ -7,6 +7,7 @@ import { NavigationPanel } from './components/navigation-panel';
 import { OrientationPanel } from './components/orientation-panel';
 import Button from './components/button';
 import { parseMissionFile, validateWaypoints, type Waypoint } from './mission';
+import { validateGuided, type GuidedWaypoint } from './guided-waypoint';
 
 const MAX_HISTORY = 30;
 const MAX_TRAIL = 300;
@@ -15,6 +16,7 @@ const WS_URL = "ws://127.0.0.1:8000/ws/telemetry";
 const API_URL = "http://127.0.0.1:8000";
 const RECONNECT_DELAY = 2000;
 const STALE_MS = 3000;
+const GUIDED_REACHED_M = 40; // clear the guided banner once within this many metres of the target
 
 type MissionStatus = 'idle' | 'running' | 'paused' | 'emergency_stop';
 
@@ -78,6 +80,12 @@ function formatAgo(ms: number) {
   return `${h}h ${m % 60}m ago`;
 }
 
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const dn = (lat2 - lat1) * 111_111;
+  const de = (lon2 - lon1) * 111_111 * Math.cos((lat1 * Math.PI) / 180);
+  return Math.hypot(dn, de);
+}
+
 export default function App() {
   const [batteryHistory, setBatteryHistory] = useState<Array<{ time: string; voltage: number | null; current: number | null }>>([]);
 
@@ -116,6 +124,13 @@ export default function App() {
   const [missionMsg, setMissionMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // ─── Send Guided Waypoint state ───
+  const [guidedInput, setGuidedInput] = useState({ latitude: '', longitude: '', altitude: '' });
+  const [guidedTarget, setGuidedTarget] = useState<GuidedWaypoint | null>(null);
+  const [sendingGuided, setSendingGuided] = useState(false);
+  const [guidedMsg, setGuidedMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  const prevMissionStatusRef = useRef<MissionStatus>('idle');
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUpdateRef = useRef<number | null>(null);
@@ -229,6 +244,23 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Clear the mission banner once the route finishes (running -> idle).
+  useEffect(() => {
+    if (prevMissionStatusRef.current === 'running' && missionStatus === 'idle') {
+      setMissionMsg(null);
+    }
+    prevMissionStatusRef.current = missionStatus;
+  }, [missionStatus]);
+
+  // Clear the guided banner once the drone reaches the target.
+  useEffect(() => {
+    if (guidedMsg?.kind !== 'success' || !guidedTarget) return;
+    if (tele.latitude == null || tele.longitude == null) return;
+    if (distanceMeters(tele.latitude, tele.longitude, guidedTarget.latitude, guidedTarget.longitude) <= GUIDED_REACHED_M) {
+      setGuidedMsg(null);
+    }
+  }, [tele.latitude, tele.longitude, guidedMsg, guidedTarget]);
+
   const batteryStatus = tele.voltage == null ? 'good' : tele.voltage > 11.5 ? 'good' : tele.voltage > 10.8 ? 'warning' : 'critical';
   const trends = trendRef.current;
   const connected = status === 'connected';
@@ -326,6 +358,76 @@ export default function App() {
     </div>
   );
 
+  const handleSendGuided = async () => {
+    if (guidedInput.latitude.trim() === '' || guidedInput.longitude.trim() === '' || guidedInput.altitude.trim() === '') {
+      setGuidedMsg({ kind: 'error', text: 'Latitude, longitude, and altitude are all required.' });
+      return;
+    }
+    const wp: GuidedWaypoint = {
+      latitude: Number(guidedInput.latitude),
+      longitude: Number(guidedInput.longitude),
+      altitude: Number(guidedInput.altitude),
+    };
+    const error = validateGuided(wp);
+    if (error) {
+      setGuidedMsg({ kind: 'error', text: error });
+      return;
+    }
+    setSendingGuided(true);
+    setGuidedMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/waypoint/guided`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(wp),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Failed to send guided waypoint.');
+      setGuidedTarget(wp);
+      setGuidedMsg({ kind: 'success', text: 'Guided waypoint sent.' });
+    } catch (err) {
+      setGuidedMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to send guided waypoint.' });
+    } finally {
+      setSendingGuided(false);
+    }
+  };
+
+  const guidedField = (key: 'latitude' | 'longitude' | 'altitude', placeholder: string) => (
+    <input
+      type="number"
+      className="guided-input"
+      placeholder={placeholder}
+      value={guidedInput[key]}
+      onChange={(e) => setGuidedInput(v => ({ ...v, [key]: e.target.value }))}
+    />
+  );
+
+  const guidedControls = (
+    <div className="guided-controls">
+      <div className="guided-title">Guided Waypoint</div>
+      <div className="guided-inputs">
+        {guidedField('latitude', 'Latitude')}
+        {guidedField('longitude', 'Longitude')}
+        {guidedField('altitude', 'Altitude (m)')}
+      </div>
+      <Button
+        title="Send Guided Waypoint"
+        onClick={handleSendGuided}
+        loading={sendingGuided}
+        className="button-panel button-guided"
+      />
+      <div className="mission-info">
+        <span className="mission-status-label">Selected waypoint:</span>{' '}
+        <span className="mission-status-value">
+          {guidedTarget ? `${guidedTarget.latitude}, ${guidedTarget.longitude}, ${guidedTarget.altitude}m` : '—'}
+        </span>
+      </div>
+      {guidedMsg && (
+        <div className={`mission-msg mission-msg-${guidedMsg.kind}`}>{guidedMsg.text}</div>
+      )}
+    </div>
+  );
+
   return (
     <div className="dashboard">
       {/* Header */}
@@ -402,6 +504,9 @@ export default function App() {
             hdop={tele.hdop}
             live={connected && tele.latitude != null && tele.longitude != null}
             missionControls={missionControls}
+            missionWaypoints={waypoints}
+            guidedControls={guidedControls}
+            guidedTarget={guidedTarget}
           />
           <NavigationPanel groundSpeed={tele.groundSpeed} heading={tele.heading} live={connected && tele.groundSpeed != null && tele.heading != null} />
           <OrientationPanel pitch={tele.pitch} roll={tele.roll} yaw={tele.yaw} live={connected && tele.pitch != null && tele.roll != null && tele.yaw != null} />
