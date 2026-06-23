@@ -48,6 +48,11 @@ mission_state = {
 }
 mission_lock = threading.Lock()
 
+# ─── Shared MAVLink connection ───
+# Set once the reader thread has a heartbeat - Connect to Sim (Simon)
+connection = None
+send_lock = threading.Lock() # reader thread and request handlers never interleave on the socket
+
 
 class Waypoint(BaseModel):
     latitude: float
@@ -59,13 +64,86 @@ class Waypoint(BaseModel):
 class MissionUpload(BaseModel):
     waypoints: List[Waypoint]
 
+
+class GuidedWaypoint(BaseModel):
+    latitude: float
+    longitude: float
+    altitude: float
+
+
+# ─── Guided + mission flight helpers ───
+MISSION_ACCEPT_RADIUS_M = 40.0   # how close counts as "reached a waypoint"
+WAYPOINT_TIMEOUT_S = 120.0       # give up on a single waypoint after this long
+
+
+def send_guided_target(lat, lon, alt):
+    # Fly to a single point in GUIDED mode. Altitude is relative to home; type_mask
+    # ignores velocity/accel/yaw (position only). set_mode + send share send_lock.
+    with send_lock:
+        connection.set_mode("GUIDED")
+        connection.mav.set_position_target_global_int_send(
+            0,
+            connection.target_system,
+            connection.target_component,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            0b110111111000,
+            int(lat * 1e7),
+            int(lon * 1e7),
+            alt,
+            0, 0, 0,
+            0, 0, 0,
+            0, 0,
+        )
+
+
+def distance_to(lat, lon):
+    # Equirectangular distance (m) from the latest telemetry fix to (lat, lon).
+    with telemetry_lock:
+        cur_lat = telemetryInfo["latitude"]
+        cur_lon = telemetryInfo["longitude"]
+    if cur_lat is None or cur_lon is None:
+        return None
+    dn = (lat - cur_lat) * 111_111.0
+    de = (lon - cur_lon) * 111_111.0 * math.cos(math.radians(cur_lat))
+    return math.hypot(dn, de)
+
+
+def missionRunner(waypoints):
+    # Fly the mission by sending each waypoint as a guided target in order,
+    # advancing once the drone is within MISSION_ACCEPT_RADIUS_M. A demo stand-in
+    # for real AUTO-mode mission upload. Stops early if the mission is no longer
+    # running (e.g. pause / e-stop / reset by another control).
+    for wp in waypoints:
+        if mission_state["status"] != "running":
+            return
+        send_guided_target(wp["latitude"], wp["longitude"], wp["altitude"])
+        started = time.time()
+        while mission_state["status"] == "running":
+            d = distance_to(wp["latitude"], wp["longitude"])
+            if d is not None and d <= MISSION_ACCEPT_RADIUS_M:
+                break
+            if time.time() - started > WAYPOINT_TIMEOUT_S:
+                print(f"Mission waypoint {wp['order']} not reached in {WAYPOINT_TIMEOUT_S:.0f}s — aborting")
+                with mission_lock:
+                    mission_state["status"] = "idle"
+                return
+            time.sleep(0.5)
+    with mission_lock:
+        if mission_state["status"] == "running":
+            mission_state["status"] = "idle"
+    print("Mission complete")
+
+
 # Drone connection
 def mavlinkReader():
+    global connection
     # Local mock sim (Backend/sim.py). For DroneSim use tcp:206.189.60.90:<sim port>
-    connection = mavutil.mavlink_connection("tcp:127.0.0.1:5760")
+    conn = mavutil.mavlink_connection("tcp:127.0.0.1:5760")
     print("Waiting heartbeat...")
-    hb = connection.wait_heartbeat(timeout=15)
+    hb = conn.wait_heartbeat(timeout=15)
     print("Heartbeat:", hb)
+    # Publish only after heartbeat so target_system/component are populated.
+    connection = conn
 
     # Information messages
     while True:
@@ -162,14 +240,33 @@ async def mission_upload(payload: MissionUpload):
 
 @app.post("/mission/start")
 async def mission_start():
+    if connection is None:
+        raise HTTPException(status_code=503, detail="Not connected to simulator.")
     with mission_lock:
         if not mission_state["waypoints"]:
             raise HTTPException(status_code=400, detail="No mission waypoints available. Upload a mission first.")
         if mission_state["status"] == "running":
             raise HTTPException(status_code=409, detail="A mission is already running.")
+        waypoints = sorted(mission_state["waypoints"], key=lambda w: w["order"])
         mission_state["status"] = "running"
-        count = len(mission_state["waypoints"])
-    return {"status": "running", "waypoint_count": count}
+    threading.Thread(target=missionRunner, args=(waypoints,), daemon=True).start()
+    return {"status": "running", "waypoint_count": len(waypoints)}
+
+
+@app.post("/waypoint/guided")
+async def send_guided_waypoint(wp: GuidedWaypoint):
+    if not (-90 <= wp.latitude <= 90):
+        raise HTTPException(status_code=400, detail=f"Invalid latitude: {wp.latitude}")
+    if not (-180 <= wp.longitude <= 180):
+        raise HTTPException(status_code=400, detail=f"Invalid longitude: {wp.longitude}")
+    if wp.altitude < 0:
+        raise HTTPException(status_code=400, detail=f"Invalid altitude: {wp.altitude}")
+
+    if connection is None:
+        raise HTTPException(status_code=503, detail="Not connected to simulator.")
+
+    send_guided_target(wp.latitude, wp.longitude, wp.altitude)
+    return {"status": "ok", "waypoint": wp.model_dump()}
 
 
 @app.websocket("/ws/telemetry")
