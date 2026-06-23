@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import Button from "./button"
+import type { ReactNode } from 'react';
 
 // Simulator currently flies at UK coordinates; used until the first fix arrives
 const DEFAULT_CENTER: [number, number] = [51.5074, -0.1278];
@@ -27,11 +27,7 @@ interface GpsPanelProps {
   satellites: number | null;
   hdop: number | null;
   live: boolean;
-}
-
-
-function startMission() {
-  console.log("Mission started");
+  missionControls?: ReactNode;
 }
 
 
@@ -46,7 +42,7 @@ function FollowDrone({ position, paused, onPause }: { position: [number, number]
   return null;
 }
 
-export function GpsPanel({ latitude, longitude, heading, trail, fixType, satellites, hdop, live }: GpsPanelProps) {
+export function GpsPanel({ latitude, longitude, heading, trail, fixType, satellites, hdop, live, missionControls }: GpsPanelProps) {
   const [paused, setPaused] = useState(false);
 
   const position: [number, number] | null = latitude != null && longitude != null ? [latitude, longitude] : null;
@@ -116,8 +112,7 @@ export function GpsPanel({ latitude, longitude, heading, trail, fixType, satelli
         </div>
       </div>
 
-        <br></br>
-      <Button className="button-panel" title="Start Mission" onClick={startMission}  />
+      {missionControls}
 
       <div className="panel-footer" style={{ marginTop: '12px' }}>Real-time GPS coordinates</div>
     </div>
