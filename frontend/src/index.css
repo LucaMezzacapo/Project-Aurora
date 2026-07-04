@@ -213,7 +213,8 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 }
 
 .button-upload,
-.button-start {
+.button-start,
+.button-pause {
   flex: 1;
   min-width: 130px;
 }
@@ -225,6 +226,10 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 
 .button-start {
   background-color: var(--accent-green, #16a34a);
+}
+
+.button-pause {
+  background-color: var(--accent-amber, #f59e0b);
 }
 
 .mission-info {

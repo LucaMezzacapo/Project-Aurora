@@ -108,11 +108,12 @@ export default function App() {
   const [lastContact, setLastContact] = useState<number | null>(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
 
-  // ─── Start Mission state ───
+  // ─── Mission state ───
   const [missionStatus, setMissionStatus] = useState<MissionStatus>('idle');
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [missionFile, setMissionFile] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [missionMsg, setMissionMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -284,7 +285,24 @@ export default function App() {
     }
   };
 
+  const handlePauseMission = async () => {
+    setPausing(true);
+    setMissionMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/mission/pause`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Failed to pause mission.');
+      setMissionStatus('paused');
+      setMissionMsg({ kind: 'success', text: 'Mission paused.' });
+    } catch (err) {
+      setMissionMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to pause mission.' });
+    } finally {
+      setPausing(false);
+    }
+  };
+
   const startDisabled = waypoints.length === 0 || missionStatus === 'running';
+  const pauseDisabled = missionStatus !== 'running';
 
   const missionControls = (
     <div className="mission-controls">
@@ -307,6 +325,13 @@ export default function App() {
           loading={starting}
           disabled={startDisabled}
           className="button-panel button-start"
+        />
+        <Button
+          title="Pause Mission"
+          onClick={handlePauseMission}
+          loading={pausing}
+          disabled={pauseDisabled}
+          className="button-panel button-pause"
         />
       </div>
       <div className="mission-info">

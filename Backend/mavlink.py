@@ -172,6 +172,15 @@ async def mission_start():
     return {"status": "running", "waypoint_count": count}
 
 
+@app.post("/mission/pause")
+async def mission_pause():
+    with mission_lock:
+        if mission_state["status"] != "running":
+            raise HTTPException(status_code=409, detail="No mission is currently running.")
+        mission_state["status"] = "paused"
+    return {"status": "paused"}
+
+
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
