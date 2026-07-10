@@ -214,7 +214,8 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 
 .button-upload,
 .button-start,
-.button-pause {
+.button-pause,
+.button-emergency {
   flex: 1;
   min-width: 130px;
 }
@@ -230,6 +231,10 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
 
 .button-pause {
   background-color: var(--accent-amber, #f59e0b);
+}
+
+.button-emergency {
+  background-color: var(--accent-red, #ef4444);
 }
 
 .mission-info {

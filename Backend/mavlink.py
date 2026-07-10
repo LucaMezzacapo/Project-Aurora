@@ -278,6 +278,27 @@ async def mission_pause():
     return {"status": "paused"}
 
 
+@app.post("/mission/emergency-stop")
+async def mission_emergency_stop():
+    with mission_lock:
+        mission_state["status"] = "emergency_stop"
+
+    hold_command_sent = False
+    if connection is not None:
+        with telemetry_lock:
+            hold_lat = telemetryInfo["latitude"]
+            hold_lon = telemetryInfo["longitude"]
+            hold_alt = telemetryInfo["relative_altitude"]
+            if hold_alt is None:
+                hold_alt = telemetryInfo["altitude"]
+
+        if hold_lat is not None and hold_lon is not None and hold_alt is not None:
+            send_guided_target(hold_lat, hold_lon, hold_alt)
+            hold_command_sent = True
+
+    return {"status": "emergency_stop", "hold_command_sent": hold_command_sent}
+
+
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()

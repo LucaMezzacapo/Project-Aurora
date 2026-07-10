@@ -122,6 +122,7 @@ export default function App() {
   const [missionFile, setMissionFile] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [emergencyStopping, setEmergencyStopping] = useState(false);
   const [missionMsg, setMissionMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -333,6 +334,22 @@ export default function App() {
     }
   };
 
+  const handleEmergencyStop = async () => {
+    setEmergencyStopping(true);
+    setMissionMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/mission/emergency-stop`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Failed to activate emergency stop.');
+      setMissionStatus('emergency_stop');
+      setMissionMsg({ kind: 'success', text: 'Emergency Stop Activated.' });
+    } catch (err) {
+      setMissionMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to activate emergency stop.' });
+    } finally {
+      setEmergencyStopping(false);
+    }
+  };
+
   const startDisabled = waypoints.length === 0 || missionStatus === 'running';
   const pauseDisabled = missionStatus !== 'running';
 
@@ -364,6 +381,12 @@ export default function App() {
           loading={pausing}
           disabled={pauseDisabled}
           className="button-panel button-pause"
+        />
+        <Button
+          title="Emergency Stop"
+          onClick={handleEmergencyStop}
+          loading={emergencyStopping}
+          className="button-panel button-emergency"
         />
       </div>
       <div className="mission-info">
