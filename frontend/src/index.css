@@ -170,6 +170,12 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
   gap: 12px;
 }
 
+.row-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
 /* ─── Panel / Card base ─── */
 .panel {
   background: var(--bg-card);
@@ -802,6 +808,52 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
   font-size: 10px;
   color: var(--text-dim);
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─── Antenna Panel ─── */
+.antenna-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.antenna-inputs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.antenna-input {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+
+.antenna-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+
+.antenna-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.antenna-buttons .button-panel {
+  flex: 1;
+  min-width: 150px;
+}
+
+.button-disable {
+  background-color: var(--accent-red, #ef4444);
 }
 
 /* ─── Recharts overrides ─── */

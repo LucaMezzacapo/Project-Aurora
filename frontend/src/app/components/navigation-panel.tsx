@@ -4,7 +4,7 @@ interface NavigationPanelProps {
   live: boolean;
 }
 
-function getCardinalDirection(heading: number | null): string {
+export function getCardinalDirection(heading: number | null): string {
   if (heading == null) return '—';
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const index = Math.round(heading / 22.5) % 16;

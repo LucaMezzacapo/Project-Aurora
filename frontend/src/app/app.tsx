@@ -5,9 +5,11 @@ import { GpsPanel } from './components/gps-panel';
 import { MetricCard } from './components/metric-card';
 import { NavigationPanel } from './components/navigation-panel';
 import { OrientationPanel } from './components/orientation-panel';
+import { AntennaPanel, type GroundStation, type TrackingStatus } from './components/antenna-panel';
 import Button from './components/button';
 import { parseMissionFile, validateWaypoints, type Waypoint } from './mission';
 import { validateGuided, type GuidedWaypoint } from './guided-waypoint';
+import { calculateAzimuth } from './geo';
 
 const MAX_HISTORY = 30;
 const MAX_TRAIL = 300;
@@ -132,6 +134,13 @@ export default function App() {
   const [sendingGuided, setSendingGuided] = useState(false);
   const [guidedMsg, setGuidedMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
+  // ─── Antenna tracking state ───
+  const [groundStation, setGroundStation] = useState<GroundStation | null>(null);
+  const [trackingStatus, setTrackingStatus] = useState<TrackingStatus>('disabled');
+  const [savingGroundStation, setSavingGroundStation] = useState(false);
+  const [updatingTracking, setUpdatingTracking] = useState(false);
+  const [antennaMsg, setAntennaMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
   const prevMissionStatusRef = useRef<MissionStatus>('idle');
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,6 +176,15 @@ export default function App() {
 
         if (typeof data.mission_status === 'string') {
           setMissionStatus(data.mission_status as MissionStatus);
+        }
+
+        if (data.ground_station && typeof data.ground_station.latitude === 'number') {
+          setGroundStation({ latitude: data.ground_station.latitude, longitude: data.ground_station.longitude });
+        } else if (data.ground_station === null) {
+          setGroundStation(null);
+        }
+        if (typeof data.tracking_status === 'string') {
+          setTrackingStatus(data.tracking_status as TrackingStatus);
         }
 
       setTele(prev => {
@@ -207,7 +225,7 @@ export default function App() {
             current: nextTele.current,
           },
         ]);
-  
+
         setAltitudeHistory(h => [
           ...h.slice(-(MAX_HISTORY - 1)),
           {
@@ -215,11 +233,11 @@ export default function App() {
             altitude: nextTele.altitude,
           },
         ]);
-  
+
         return nextTele;
       });
     };
-  
+
       ws.onerror = () => {
         ws.close();
       };
@@ -352,6 +370,45 @@ export default function App() {
 
   const startDisabled = waypoints.length === 0 || missionStatus === 'running';
   const pauseDisabled = missionStatus !== 'running';
+
+  const handleSaveGroundStation = async (latitude: number, longitude: number) => {
+    setSavingGroundStation(true);
+    setAntennaMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/antenna/ground-station`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude, longitude }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Failed to save ground station.');
+      setGroundStation({ latitude, longitude });
+      setAntennaMsg({ kind: 'success', text: 'Ground station position saved.' });
+    } catch (err) {
+      setAntennaMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to save ground station.' });
+    } finally {
+      setSavingGroundStation(false);
+    }
+  };
+
+  const handleSetTracking = async (action: 'enable' | 'pause' | 'disable') => {
+    setUpdatingTracking(true);
+    setAntennaMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/antenna/${action}`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `Failed to ${action} tracking.`);
+      setTrackingStatus(data.status as TrackingStatus);
+    } catch (err) {
+      setAntennaMsg({ kind: 'error', text: err instanceof Error ? err.message : `Failed to ${action} tracking.` });
+    } finally {
+      setUpdatingTracking(false);
+    }
+  };
+
+  const azimuth = groundStation && tele.latitude != null && tele.longitude != null
+    ? calculateAzimuth(groundStation.latitude, groundStation.longitude, tele.latitude, tele.longitude)
+    : null;
 
   const missionControls = (
     <div className="mission-controls">
@@ -558,6 +615,24 @@ export default function App() {
           />
           <NavigationPanel groundSpeed={tele.groundSpeed} heading={tele.heading} live={connected && tele.groundSpeed != null && tele.heading != null} />
           <OrientationPanel pitch={tele.pitch} roll={tele.roll} yaw={tele.yaw} live={connected && tele.pitch != null && tele.roll != null && tele.yaw != null} />
+        </div>
+
+        {/* Row 4: Antenna tracking */}
+        <div className="row-1">
+          <AntennaPanel
+            aircraftLat={tele.latitude}
+            aircraftLon={tele.longitude}
+            groundStation={groundStation}
+            trackingStatus={trackingStatus}
+            azimuth={azimuth}
+            onSaveGroundStation={handleSaveGroundStation}
+            onEnable={() => handleSetTracking('enable')}
+            onPause={() => handleSetTracking('pause')}
+            onDisable={() => handleSetTracking('disable')}
+            saving={savingGroundStation}
+            updating={updatingTracking}
+            msg={antennaMsg}
+          />
         </div>
 
       </main>

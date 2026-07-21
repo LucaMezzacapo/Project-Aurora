@@ -53,6 +53,15 @@ mission_lock = threading.Lock()
 connection = None
 send_lock = threading.Lock() # reader thread and request handlers never interleave on the socket
 
+# ─── Antenna tracking state ───
+# tracking_status: active | paused | disabled. Can only be active/paused once
+# a ground_station position has been saved.
+antenna_state = {
+    "ground_station": None,
+    "tracking_status": "disabled",
+}
+antenna_lock = threading.Lock()
+
 
 class Waypoint(BaseModel):
     latitude: float
@@ -69,6 +78,11 @@ class GuidedWaypoint(BaseModel):
     latitude: float
     longitude: float
     altitude: float
+
+
+class GroundStation(BaseModel):
+    latitude: float
+    longitude: float
 
 
 # ─── Guided + mission flight helpers ───
@@ -148,10 +162,10 @@ def mavlinkReader():
     # Information messages
     while True:
         msg = connection.recv_match(blocking=False)
-        
+
         if msg is None:
             continue
-        
+
         elif msg.get_type() == 'GLOBAL_POSITION_INT':
             latitude = msg.lat / 1e7
             longitude = msg.lon / 1e7
@@ -162,7 +176,7 @@ def mavlinkReader():
             telemetryInfo["longitude"] = longitude
             telemetryInfo["altitude"] = altitude
             telemetryInfo["relative_altitude"] = relative_altitude
-            
+
         elif msg.get_type() == 'SYS_STATUS':
             battery_percentage = msg.battery_remaining
             # print(f"Battery Percentage: {battery_percentage}%")
@@ -170,7 +184,7 @@ def mavlinkReader():
             # 65535 / -1 are MAVLink sentinels for "unknown"
             telemetryInfo["battery_voltage"] = None if msg.voltage_battery == 65535 else msg.voltage_battery / 1000.0
             telemetryInfo["battery_current"] = None if msg.current_battery == -1 else msg.current_battery / 100.0
-            
+
         elif msg.get_type() == 'ATTITUDE':
             roll_deg = math.degrees(msg.roll)
             pitch_deg = math.degrees(msg.pitch)
@@ -179,7 +193,7 @@ def mavlinkReader():
             telemetryInfo["roll"] = roll_deg
             telemetryInfo["pitch"] = pitch_deg
             telemetryInfo["yaw"] = yaw_deg
-            
+
         elif msg.get_type() == 'VFR_HUD':
             groundspeed_km = msg.groundspeed * 3.6
             # print(f"Ground speed = {groundspeed_km}km/h")
@@ -191,15 +205,15 @@ def mavlinkReader():
             # 255 / 65535 are MAVLink sentinels for "unknown"
             telemetryInfo["satellites"] = None if msg.satellites_visible == 255 else msg.satellites_visible
             telemetryInfo["hdop"] = None if msg.eph == 65535 else msg.eph / 100.0
-        
+
         telemetryInfo["last_update"] = time.time()
-        
+
 @app.on_event("startup")
 async def startup_event():
     print("Starting MAVLink reader thread...")
     thread = threading.Thread(target=mavlinkReader, daemon=True)
-    thread.start()   
-    
+    thread.start()
+
 @app.get("/")
 async def root():
     return {"status": "backend running"}
@@ -299,6 +313,49 @@ async def mission_emergency_stop():
     return {"status": "emergency_stop", "hold_command_sent": hold_command_sent}
 
 
+@app.get("/antenna/status")
+async def antenna_status():
+    with antenna_lock:
+        return dict(antenna_state)
+
+
+@app.post("/antenna/ground-station")
+async def antenna_set_ground_station(payload: GroundStation):
+    if not (-90 <= payload.latitude <= 90):
+        raise HTTPException(status_code=400, detail=f"Invalid latitude: {payload.latitude}")
+    if not (-180 <= payload.longitude <= 180):
+        raise HTTPException(status_code=400, detail=f"Invalid longitude: {payload.longitude}")
+
+    with antenna_lock:
+        antenna_state["ground_station"] = {"latitude": payload.latitude, "longitude": payload.longitude}
+        return dict(antenna_state)
+
+
+@app.post("/antenna/enable")
+async def antenna_enable():
+    with antenna_lock:
+        if antenna_state["ground_station"] is None:
+            raise HTTPException(status_code=400, detail="Save a ground station position before enabling tracking.")
+        antenna_state["tracking_status"] = "active"
+    return {"status": "active"}
+
+
+@app.post("/antenna/pause")
+async def antenna_pause():
+    with antenna_lock:
+        if antenna_state["tracking_status"] != "active":
+            raise HTTPException(status_code=409, detail="Tracking is not currently active.")
+        antenna_state["tracking_status"] = "paused"
+    return {"status": "paused"}
+
+
+@app.post("/antenna/disable")
+async def antenna_disable():
+    with antenna_lock:
+        antenna_state["tracking_status"] = "disabled"
+    return {"status": "disabled"}
+
+
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -310,6 +367,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 snapshot = dict(telemetryInfo)
             with mission_lock:
                 snapshot["mission_status"] = mission_state["status"]
+            with antenna_lock:
+                snapshot["ground_station"] = antenna_state["ground_station"]
+                snapshot["tracking_status"] = antenna_state["tracking_status"]
 
             await websocket.send_json(snapshot)
             await asyncio.sleep(0.2)
