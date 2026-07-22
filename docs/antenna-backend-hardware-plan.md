@@ -21,7 +21,7 @@ This plan is reconciled to it:
 - **Open gap — azimuth is frontend-only:** `calculateAzimuth()` lives in
   `frontend/src/app/geo.ts` (great-circle bearing, 0–360°). The controller and
   serial driver run in the backend and cannot consume a value computed in the
-  browser, so a **backend** azimuth source is still required. Elevation is not implemented anywhere yet.
+  browser, so a **backend** azimuth source is still required even if we want to display it in the frontend. Elevation is not implemented anywhere yet.
 - **Held from the plan:** `/antenna/disable` is a soft off-flag and does **not**
   send a hardware STOP. Emergency-stop stays a separate path (see the backend
   pipeline and safety sections below).
@@ -104,13 +104,13 @@ Rules:
 
 ## 4. Hardware plan (ground-station side)
 
-| Part         | Choice                                       | Why                                                    |
-| ------------ | -------------------------------------------- | ------------------------------------------------------ |
-| MCU          | ESP32 dev board (or Pi Pico)                 | USB serial + hardware PWM, ~$8                         |
-| Pan servo    | Sail-winch servo (HS-785HB class)            | multi-turn position control → 360° azimuth             |
-| Tilt servo   | DS3218 / MG996R metal gear                   | 0–90° elevation, handles antenna + coax weight         |
-| Servo power  | 5–6 V 3 A UBEC, common ground with MCU       | servos never powered from USB                          |
-| Mount        | Off-the-shelf or 3D-printed pan-tilt bracket | v1 prototype                                           |
+| Part         | Choice                                                  | Why                                                    |
+| ------------ | ------------------------------------------------------- | ------------------------------------------------------ |
+| MCU          | ESP32 dev board (or Pi Pico)                            | USB serial + hardware PWM, ~$8                         |
+| Pan servo    | Sail-winch servo (HS-785HB class)                       | multi-turn position control → 360° azimuth             |
+| Tilt servo   | DS3218 / MG996R metal gear                              | 0–90° elevation, handles antenna + coax weight         |
+| Servo power  | 5–6 V 3 A UBEC, common ground with MCU                  | servos never powered from USB                          |
+| Mount        | Off-the-shelf or 3D-printed pan-tilt bracket            | v1 prototype                                           |
 | GCS position | Saved at runtime via `/antenna/ground-station` (exists) | a second BN220 at the GCS is an optional later upgrade |
 
 Wiring: laptop —USB— ESP32; ESP32 PWM pins → pan/tilt servo signal wires; UBEC →
