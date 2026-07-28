@@ -22,7 +22,6 @@ export function MetricCard({ label, value, unit, trend, status = 'good' }: Metri
           </span>
         )}
       </div>
-      <div className="metric-footer">LIVE UPDATE</div>
     </div>
   );
 }

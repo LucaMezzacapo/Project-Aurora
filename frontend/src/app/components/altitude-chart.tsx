@@ -1,10 +1,11 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface AltitudeChartProps {
-  data: Array<{ time: string; altitude: number }>;
+  data: Array<{ time: string; altitude: number | null }>;
+  live: boolean;
 }
 
-export function AltitudeChart({ data }: AltitudeChartProps) {
+export function AltitudeChart({ data, live }: AltitudeChartProps) {
   return (
     <div className="chart-panel">
       <div className="panel-header">
@@ -13,8 +14,8 @@ export function AltitudeChart({ data }: AltitudeChartProps) {
           Altitude vs Time
         </span>
         <span className="panel-badge">
-          <span className="dot dot-cyan"></span>
-          Continuously Updating
+          <span className={`dot ${live ? 'dot-cyan' : 'dot-dim'}`}></span>
+          {live ? 'Continuously Updating' : 'Stale'}
         </span>
       </div>
 
