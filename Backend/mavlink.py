@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+from azimuth_calc import calculate_azimuth
 from pymavlink import mavutil;
 
 # FastAPI
@@ -360,9 +361,14 @@ async def antenna_disable():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("Frontend connected to websocket")
+    
+    last_sent_azimuth = None
+    JITTER_THRESHOLD = 1.5  
+    PROXIMITY_LIMIT_M = 5.0  # Stop tracking if drone is closer than 5 meters
 
     try:
         while True:
+            # 1. Gather all current state data
             with telemetry_lock:
                 snapshot = dict(telemetryInfo)
             with mission_lock:
@@ -371,7 +377,42 @@ async def websocket_endpoint(websocket: WebSocket):
                 snapshot["ground_station"] = antenna_state["ground_station"]
                 snapshot["tracking_status"] = antenna_state["tracking_status"]
 
+            # 2. Extract required variables for math
+            gcs = snapshot.get("ground_station")
+            d_lat = snapshot.get("latitude")
+            d_lon = snapshot.get("longitude")
+            t_status = snapshot.get("tracking_status")
+
+            target_azimuth = last_sent_azimuth # Default to the last known position
+
+            # 3. Only calculate if tracking is enabled and we have valid GPS coordinates
+            if t_status == "active" and gcs is not None and d_lat is not None and d_lon is not None:
+                
+                # Proximity Check: Calculate distance to GCS using equirectangular approximation
+                dn = (d_lat - gcs["latitude"]) * 111_111.0
+                de = (d_lon - gcs["longitude"]) * 111_111.0 * math.cos(math.radians(gcs["latitude"]))
+                dist = math.hypot(dn, de)
+
+                # Only move the antenna if the drone is further than our proximity limit
+                if dist >= PROXIMITY_LIMIT_M:
+                    
+                    new_azimuth = calculate_azimuth(
+                        gcs["latitude"], gcs["longitude"], 
+                        d_lat, d_lon
+                    )
+
+                    # 4. Jitter Prevention Check
+                    if last_sent_azimuth is None or abs(new_azimuth - last_sent_azimuth) >= JITTER_THRESHOLD:
+                        last_sent_azimuth = new_azimuth
+                        
+                        # Note: This is where you will eventually trigger Ron & Ethan's 
+                        # hardware movement function (e.g., send_antenna_command(new_azimuth))
+
+            # 5. Append the calculated azimuth to the snapshot for Sreeja's dashboard
+            snapshot["target_azimuth"] = last_sent_azimuth
+
             await websocket.send_json(snapshot)
             await asyncio.sleep(0.2)
+            
     except WebSocketDisconnect:
         print("Frontend disconnected")
