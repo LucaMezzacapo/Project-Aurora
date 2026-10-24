@@ -4,8 +4,12 @@
 # NOTE: this is a demo aid, not a real autopilot. It accepts the exact message our
 # backend sends, so it validates the UI + send path, not MAVLink protocol correctness.
 # Run: python sim.py   (backend connects to tcp:127.0.0.1:5760)
+# To run the sim testing AEAC packet info, 
+# use: AURORA_AEAC_PACKET_TEST=1 AURORA_SIM_INVALID=0 python3 sim.py
 import math
 import time
+import os
+import random
 from pymavlink import mavutil
 
 HOST = "127.0.0.1:5760"
@@ -18,9 +22,12 @@ SPEED_MS = 18.0
 CLIMB_MS = 4.0              # vertical speed toward a target altitude
 ALTITUDE_M = 100.0
 TICK_S = 0.2
+SIM_PACKET_TEST = os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
+SIM_INVALID = os.getenv("AURORA_SIM_INVALID") == "1"
 
 METERS_PER_DEG_LAT = 111_111.0
 
+rng = random.Random(338);
 
 def meters_per_deg_lon(lat):
     return METERS_PER_DEG_LAT * math.cos(math.radians(lat))
@@ -141,6 +148,28 @@ def main():
                 battery_pct,
                 0, 0, 0, 0, 0, 0,
             )
+            
+            if SIM_PACKET_TEST:
+                test_values = {
+                    b"SIM_AGL": rng.uniform(80.0, 120.0),
+                    b"SIM_HACC": rng.uniform(0.5, 5.0),
+                    b"SIM_VACC": rng.uniform(1.0, 8.0),
+                    # Codes 0–5 map to the six allowed modes.
+                    b"SIM_MODE": float(rng.randrange(6)),
+                    b"SIM_RC": rng.uniform(0.0, 1.0),
+                    b"SIM_TLM": rng.uniform(0.0, 1.0),
+                }
+
+                # Deliberately violate the packet's 0–1 constraint.
+                # Random synthetic features: if flight mode is "off" or "armed" etc.
+                # it doesnt affect the actual sim aircraft behaviour
+                if SIM_INVALID:
+                    test_values[b"SIM_RC"] = 1.5
+
+                for name, value in test_values.items():
+                    conn.mav.named_value_float_send(
+                        boot_ms, name, value
+                    )         
 
         tick += 1
         time.sleep(TICK_S)

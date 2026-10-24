@@ -3,13 +3,36 @@ import math
 import asyncio
 import threading
 import time
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from typing import List
 from azimuth_calc import calculate_azimuth
-from pymavlink import mavutil;
+from pymavlink import mavutil
+from telemetry_packet import TelemetryPacket
+from pydantic import BaseModel, ValidationError
 
+# To run the backend for testing AEAC packet info, 
+# use: AURORA_AEAC_PACKET_TEST=1 python3 -m uvicorn mavlink:app --port 8000
+
+SIM_PACKET_TEST = os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
+
+SIM_FIELDS = {
+    "SIM_AGL": "altitude_agl_m",
+    "SIM_HACC": "horizontal_accuracy_m",
+    "SIM_VACC": "vertical_accuracy_m",
+    "SIM_RC": "rc_link_status",
+    "SIM_TLM": "telemetry_link_status",
+}
+
+SIM_MODES = (
+    "off",
+    "idle",
+    "link-lost",
+    "failsafe",
+    "armed-pilot",
+    "armed-automatic",
+)
 # FastAPI
 app = FastAPI()
 
@@ -37,6 +60,13 @@ telemetryInfo = {
     "satellites": None,
     "hdop": None,
     "last_update": None,
+    # Note: Additional required AEAC packet Info
+    "vertical_accuracy_m": None,
+    "horizontal_accuracy_m": None,
+    "altitude_agl_m": None,
+    "flight_mode": None,
+    "rc_link_status": None,
+    "telemetry_link_status": None,
 }
 
 telemetry_lock = threading.Lock()
@@ -149,6 +179,49 @@ def missionRunner(waypoints):
     print("Mission complete")
 
 
+def calcPosAccuracy(msg, position_name):
+    if msg.fix_type < 3:
+        return None
+    
+    mm = getattr(msg, position_name, None)
+    if mm is None or mm <= 0:
+        return None
+    
+    
+    return mm / 1000.0
+
+def buildPacket(snapshot):
+    values = {
+        name: snapshot.get(name)
+        for name in TelemetryPacket.model_fields
+        if name not in ("uav_id", "timestamp")
+    }
+    
+    missing = [
+        name for name, value in values.items()
+        if value is None
+    ]
+    
+    if missing:
+        return None, [
+            f"{name}: is unavailable" for name in missing
+        ]
+    try:
+        packet = TelemetryPacket(
+            uav_id="aurora-v1",
+            timestamp=time.time(),
+            **values,
+        )
+    except ValidationError as exc:
+        issues = [
+            f"{'.'.join(map(str, error['loc']))}: {error['msg']}"
+            for error in exc.errors()
+        ]
+        return None, issues
+    
+    return packet, []
+
+
 # Drone connection
 def mavlinkReader():
     global connection
@@ -166,6 +239,41 @@ def mavlinkReader():
 
         if msg is None:
             continue
+        
+        elif msg.get_type() == "NAMED_VALUE_FLOAT":
+            if not SIM_PACKET_TEST:
+                continue
+
+            # Accept fixtures only from the connected simulator.
+            if (
+                hb is None
+                or msg.get_srcSystem() != hb.get_srcSystem()
+                or msg.get_srcComponent() != hb.get_srcComponent()
+            ):
+                continue
+
+            name = msg.name
+            if isinstance(name, bytes):
+                name = name.decode("ascii", errors="replace")
+            name = name.rstrip("\x00")
+
+            value = float(msg.value)
+
+            with telemetry_lock:
+                if name == "SIM_MODE":
+                    telemetryInfo["flight_mode"] = (
+                        SIM_MODES[int(value)]
+                        if (
+                            math.isfinite(value)
+                            and value.is_integer()
+                            and 0 <= value < len(SIM_MODES)
+                        )
+                        else None
+                    )
+                elif name in SIM_FIELDS:
+                    # Preserve invalid numeric values so the
+                    # packet validator can detect them.
+                    telemetryInfo[SIM_FIELDS[name]] = value
 
         elif msg.get_type() == 'GLOBAL_POSITION_INT':
             latitude = msg.lat / 1e7
@@ -206,6 +314,10 @@ def mavlinkReader():
             # 255 / 65535 are MAVLink sentinels for "unknown"
             telemetryInfo["satellites"] = None if msg.satellites_visible == 255 else msg.satellites_visible
             telemetryInfo["hdop"] = None if msg.eph == 65535 else msg.eph / 100.0
+            
+            if not SIM_PACKET_TEST:
+                telemetryInfo["vertical_accuracy_m"] = calcPosAccuracy(msg, "v_acc")
+                telemetryInfo["horizontal_accuracy_m"] = calcPosAccuracy(msg, "h_acc")
 
         telemetryInfo["last_update"] = time.time()
 
@@ -410,9 +522,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # 5. Append the calculated azimuth to the snapshot for Sreeja's dashboard
             snapshot["target_azimuth"] = last_sent_azimuth
+            
+            packet, issues = buildPacket(snapshot)
+            
+            snapshot["aeac_packet"] = (
+                packet.model_dump(mode="json")
+                if packet is not None
+                else None
+            )
+            snapshot["aeac_packet_issues"] = issues
 
             await websocket.send_json(snapshot)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(1.0)
             
     except WebSocketDisconnect:
         print("Frontend disconnected")
