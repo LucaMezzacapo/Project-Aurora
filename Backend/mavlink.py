@@ -531,6 +531,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 else None
             )
             snapshot["aeac_packet_issues"] = issues
+            snapshot["aeac_simulation"] = SIM_PACKET_TEST
 
             await websocket.send_json(snapshot)
             await asyncio.sleep(1.0)
