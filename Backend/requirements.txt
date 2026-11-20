@@ -2,3 +2,4 @@ fastapi
 uvicorn
 pymavlink
 websockets
+pydantic>=2,<3

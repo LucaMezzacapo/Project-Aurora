@@ -19,6 +19,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import TrackerMap from "./tracker-map";
+import AeacTelemetryPanel from "./aeac-telemetry-panel";
 import {
   createDemo,
   currentSeparation,
@@ -254,7 +255,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
       <div className="wt-demo-bar">
         <div>
           <span className="wt-demo-label">DEMO MODE</span>
-          <span>Simulated tag + UAV telemetry. Backend not connected.</span>
+          <span>Map, tag and separation use demo data. AEAC aircraft telemetry below uses the backend.</span>
         </div>
         <div className="wt-demo-controls">
           <label htmlFor="wt-scenario">Preview state</label>
@@ -321,9 +322,10 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
           </Badge>
         </div>
       </header>
+      <AeacTelemetryPanel />
       {state.paused && (
         <div className="wt-message amber">
-          Demo paused — telemetry and demo timers are frozen.
+          Demo paused — demo telemetry and timers are frozen. AEAC aircraft telemetry continues.
         </div>
       )}
       <section className="wt-metrics" aria-label="Tracking metrics">

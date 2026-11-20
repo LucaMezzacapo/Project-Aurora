@@ -1,0 +1,14 @@
+.aeac-panel { margin: 0 0 18px; }
+.aeac-badges, .aeac-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; }
+.aeac-summary { color: var(--wt-muted); font-size: 11px; margin-bottom: 18px; }
+.aeac-summary > span, .aeac-issues strong { display: inline-flex; align-items: center; gap: 6px; }
+.aeac-summary small { color: var(--wt-muted); }
+.aeac-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 16px; margin: 0; }
+.aeac-fields dt { color: var(--wt-muted); font-size: 10px; margin-bottom: 7px; }
+.aeac-fields dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.aeac-historical dd { color: var(--wt-muted); }
+.aeac-issues { margin-top: 18px; padding: 12px; border: 1px solid #6a4a1b; border-radius: 6px; color: #f59e0b; font-size: 11px; }
+.aeac-issues ul { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; }
+.aeac-note { margin: 16px 0 0; color: var(--wt-muted); font-size: 11px; line-height: 1.6; }
+@media (max-width: 1000px) { .aeac-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 650px) { .aeac-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
