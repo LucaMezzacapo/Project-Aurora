@@ -37,7 +37,10 @@ GNSS receiver ─▶ MCU ─▶ LoRa 915 MHz ──radio──▶ LoRa receiver 
                battery                                     dashboard map + CSV writer
 ```
 
-## 2. Component categories (the meeting deliverable)
+Three cost tiers: **LOW** (Simon, separate doc), **MID** (Section 2 — the
+baseline below), **HIGH** (Section 3 — targeted upgrades over mid).
+
+## 2. Component categories — MID tier (baseline)
 
 | #   | Item                            | What it does                                                                                                                                                                                                                  | Part we're buying                                                                              | CAD      |
 | --- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------- |
@@ -52,7 +55,63 @@ GNSS receiver ─▶ MCU ─▶ LoRa 915 MHz ──radio──▶ LoRa receiver 
 | T9  | LoRa radio module (ground side) | Receives the downlink at the flight line; doubles as the firmware dev board until the tag is built                                                                                                                             | Heltec Wireless Tracker V2 #2, USB into the laptop                                               | 40       |
 | T10 | Ground host                     | Bridges T9 to the dashboard + writes the CSV; must accept late/out-of-order points so backfill after a link outage closes gaps                                                                                                 | GCS laptop already running the dashboard                                                         | 0        |
 
-Total ~$110–125. Buy the **915 MHz SKU**, not 868 (EU).
+**MID total: ~$110–125 CAD.** Buy the **915 MHz SKU**, not 868 (EU).
+
+## 3. HIGH tier — full list
+
+Same architecture and firmware as mid. Rows marked **(same as mid)** are
+unchanged because the mid part is already the right one — upgrading them buys
+nothing (e.g. a MAX-M10S receiver breakout was considered and rejected:
+L1-only, a sidegrade to the UC6580 we already have).
+
+| #   | Item                            | Part — HIGH tier                                                                                                                                                                                                   | CAD      |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| T1  | GNSS receiver                   | Heltec Wireless Tracker V2 #1 (onboard UC6580) **(same as mid)**                                                                                                                                                     | 40       |
+| T2  | GNSS antenna                    | **UPGRADE:** u-blox ANN-MB5 dual-band L1+L5 active antenna + u.FL→SMA pigtail. The UC6580 already supports L5, which resists multipath — the exact weakness of a sideways-mounted moving tag; a cheap L1 patch wastes it. 49 × 46 × 16 mm fits the case; trim the 3 m cable | 60–70    |
+| T3  | LoRa radio module (tag side)    | Heltec Wireless Tracker V2 #1 (onboard SX1262, 915 MHz SKU) **(same as mid)**                                                                                                                                        | included |
+| T4  | MCU                             | Heltec Wireless Tracker V2 #1 (onboard ESP32-S3), same buffering firmware **(same as mid)**                                                                                                                          | included |
+| T5  | Battery                         | 1000–1500 mAh 1S LiPo pouch cell **(same as mid)**                                                                                                                                                                   | 10–15    |
+| T6  | Charger / regulator             | Heltec Wireless Tracker V2 #1 (onboard) **(same as mid)**                                                                                                                                                            | included |
+| T7  | Velcro, hook side               | **UPGRADE:** VELCRO® Brand industrial hook tape — more consistent engagement for the press-on. **Not 3M Dual Lock**: it only mates with itself, not the comp's loop side = 0 attachment pts                           | ~10      |
+| T8  | Enclosure                       | 3D-printed in-house, weather-sealed, antenna angled skyward **(same as mid)**                                                                                                                                        | ~5       |
+| T9  | LoRa radio module (ground side) | Heltec Wireless Tracker V2 #2, USB into the laptop **(same as mid)**                                                                                                                                                 | 40       |
+| T10 | Ground host                     | GCS laptop already running the dashboard **(same as mid)**                                                                                                                                                           | 0        |
+| T11 | Backup receiver **(added)**     | Heltec Wireless Tracker V2 #3, listening passively at the flight line — LoRa is broadcast, so a second listener is free redundancy against a dead receiver/USB port (the failure that costs all 30 tracking pts)     | 40       |
+| T12 | Spare tag kit **(added)**       | Full duplicate tag (board #4 + battery + printed case + velcro) — comp-day insurance; a crashed or velcro-failed tag otherwise ends Task 2 tracking                                                                  | 55–60    |
+| T13 | microSD debug log **(added)**   | microSD SPI breakout on the tag — power-loss-proof log for field tests and post-run analysis                                                                                                                         | ~5       |
+
+**HIGH total: ~$280–310 CAD** — mid + ~$170. What the extra ~$170 buys:
+
+- better GNSS antenna (ANN-MB5 over generic patch): **+$50**
+- brand-name hook tape: **+$5**
+- third board (backup receiver): **+$40**
+- full spare tag kit: **+$55–60**
+- microSD debug log: **+$5**
+
+Of that, only the antenna (+$50) buys performance; the other ~$120 buys
+redundancy. Compliance unchanged: heaviest build
+(board + MB5 antenna with trimmed cable + battery + case) ≈ 180–200 g vs
+250 g limit, antenna's 49 mm footprint fits the 8 cm box, still 915 MHz
+licence-free, still genuine hook-and-loop. RTK (~$600+ for tag + base) stays
+excluded — that's the "absurd" tier; it remains the contingency below.
+
+## 4. Purchase links
+
+| Part | Used in | Link |
+| --- | --- | --- |
+| Heltec Wireless Tracker V2 (915 MHz SKU) | T1/T3/T4/T6, T9, T11, T12 | <https://heltec.org/project/wireless-tracker/> |
+| Heltec Wireless Tracker docs/specs | reference | <https://wiki.heltec.org/docs/devices/open-source-hardware/esp32-series/lora-32/wireless-tracker-v2/> |
+| u-blox ANN-MB5 L1+L5 active antenna (HIGH T2) | T2 high | <https://www.sparkfun.com/u-blox-multi-band-active-gnss-antenna-l1-l5-ann-mb5.html> |
+| u.FL→SMA pigtail (pairs with ANN-MB5) | T2 high | <https://www.sparkfun.com/interface-cable-sma-to-u-fl.html> |
+| 1S LiPo pouch cell, 1000–1500 mAh (e.g. Adafruit 1200 mAh) | T5 | <https://www.adafruit.com/product/258> |
+| microSD SPI breakout (e.g. Adafruit) | T13 high | <https://www.adafruit.com/product/254> |
+| MID T2 external active patch antenna | T2 mid | model is Simon's deep-dive — no link yet |
+| Industrial hook tape (T7), filament (T8) | T7, T8 | generic — Amazon/hardware store, no canonical link |
+
+Notes: SparkFun/Adafruit prices are USD — the CAD figures in the tables
+already account for conversion. ANN-MB5 availability flag: Digi-Key quotes a
+16-week manufacturer lead time and some retailers show backorder — if HIGH
+tier is chosen, order the antenna first.
 
 Budget contingency: if the accuracy walk-test can't hold the 5 m threshold,
 the fix is RTK GPS (~$300+, cm-level) — hold in reserve, don't buy up front.
