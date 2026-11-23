@@ -29,7 +29,9 @@ import {
   trackingCSV,
   TRAJECTORY_MS,
 } from "./tracker-model";
-import type { Scenario } from "./tracker-model";
+import { useAeacTelemetry } from "./use-aeac-telemetry";
+import type { Practice } from "./aeac-telemetry";
+import type { Action, AuditEvent, TrackerState, Scenario } from "./tracker-model";
 const timer = (ms: number) => {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)
@@ -136,20 +138,83 @@ function ResetDialog({
   );
 }
 export default function WildlifeTracker({ visible }: { visible: boolean }) {
-  const [state, dispatch] = useReducer(trackerReducer, undefined, () =>
-    createDemo(),
-  );
-  const [resetOpen, setResetOpen] = useState(false);
-  const [notice, setNotice] = useState("");
+  const feed = useAeacTelemetry();
+  const [offlinePreview, setOfflinePreview] = useState(false);
+  const mission = feed.frame?.practice;
+  if (mission) {
+    return <PracticeSession key={mission.windowEndMs ?? "waiting"} mission={mission} visible={visible} feed={feed} />;
+  }
+  if (!feed.frame && !offlinePreview) {
+    return <main className="wt-dashboard">
+      <AeacTelemetryPanel feed={feed} />
+      <div className="wt-demo-bar">
+        <span>{feed.error ?? "Waiting for the backend to identify the tracker session."}</span>
+        <button className="wt-small-button" onClick={() => setOfflinePreview(true)}>Preview offline demo</button>
+      </div>
+    </main>;
+  }
+  return <DemoSession visible={visible} feed={feed} />;
+}
+
+type SessionProps = { visible: boolean; feed: ReturnType<typeof useAeacTelemetry> };
+
+function DemoSession(props: SessionProps) {
+  const [state, dispatch] = useReducer(trackerReducer, undefined, () => createDemo());
   useEffect(() => {
     const id = setInterval(() => dispatch({ type: "tick" }), 1000);
     return () => clearInterval(id);
   }, []);
-  const latest = state.fixes.at(-1);
+  return <TrackerDashboard {...props} state={state} dispatch={dispatch} />;
+}
+
+function PracticeSession({ mission, ...props }: SessionProps & { mission: Practice }) {
+  const [actions, setActions] = useState<AuditEvent[]>([]);
+  const [finalExport, setFinalExport] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const { now } = props.feed;
+  const deployed = mission.windowEndMs !== null;
+  const state: TrackerState = {
+    now, windowEndsAt: mission.windowEndMs ?? Infinity, trajectoryStartedAt: mission.startMs,
+    attached: deployed, targetConfirmed: deployed, paused: false, scenario: "tracking",
+    fixes: mission.fixes, uav: mission.aircraft,
+    uavUpdatedAt: mission.aircraft ? Date.parse(mission.aircraft.timestamp) : null,
+    events: [...actions], exported: finalExport, submitted,
+  };
+  if (mission.startMs !== null) {
+    state.events.push({ kind: "STAGE", timestamp: new Date(mission.startMs).toISOString(),
+      message: "Aircraft reached 100 m from the tag. Tracking window opened." });
+  }
+  function dispatch(action: Action) {
+    let message: string;
+    if (action.type === "export") {
+      const final = mission.startMs !== null && now >= Math.min(mission.startMs + TRAJECTORY_MS, state.windowEndsAt);
+      setFinalExport(final);
+      message = final ? "Tracking CSV downloaded." : "Partial tracking CSV downloaded.";
+    } else if (action.type === "submit" && finalExport) {
+      setSubmitted(true);
+      message = "Operator marked the practice handoff complete.";
+    } else return;
+    setActions(previous => [{ kind: "OPR", timestamp: new Date(now).toISOString(), message }, ...previous]);
+  }
+  return <TrackerDashboard {...props} state={state} dispatch={dispatch} mission={mission} />;
+}
+
+function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionProps & {
+  state: TrackerState; dispatch: (action: Action) => void; mission?: Practice;
+}) {
+  const [resetOpen, setResetOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const latest = mission ? mission.tag : state.fixes.at(-1);
   const latestTime = latest ? Date.parse(latest.timestamp) : null;
-  const tagFresh = isFresh(latestTime, state.now);
-  const uavFresh = isFresh(state.uavUpdatedAt, state.now);
-  const separation = currentSeparation(state);
+  const recordedEnd = state.fixes.at(-1);
+  const recordedEndTime = recordedEnd ? Date.parse(recordedEnd.timestamp) : null;
+  const current = !mission || (feed.status === "receiving" && !feed.error);
+  const tagFresh = current && isFresh(latestTime, state.now);
+  const uavFresh = current && isFresh(state.uavUpdatedAt, state.now);
+  const separation = mission
+    ? (tagFresh && uavFresh ? mission.separation : null)
+    : currentSeparation(state);
+  const demoTag = !mission && tagFresh;
   const safe = separation !== null && separation >= 100;
   const end = Math.min(
     (state.trajectoryStartedAt ?? state.now) + TRAJECTORY_MS,
@@ -158,7 +223,8 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
   const complete = state.trajectoryStartedAt !== null && state.now >= end;
   const windowOver = state.now >= state.windowEndsAt;
   const gaps = recordingGaps(state.fixes);
-  const status =
+  const status = mission && state.trajectoryStartedAt === null && !windowOver && separation !== null
+    ? "AWAITING 100 M OFFSET" :
     separation === null
       ? "SEPARATION UNKNOWN"
       : !safe
@@ -170,8 +236,9 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
             : state.trajectoryStartedAt === null
               ? "READY FOR TRACKING"
               : "SAFE TRACKING · ACTIVE";
+  const departing = !!mission && mission.startMs === null && !windowOver;
   const statusTone =
-    separation === null || windowOver ? "amber" : safe ? "green" : "red";
+    departing || separation === null || windowOver ? "amber" : safe ? "green" : "red";
   const firstTime = state.fixes[0]
     ? Date.parse(state.fixes[0].timestamp)
     : null;
@@ -195,14 +262,14 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
   const steps = [
     {
       title: "Locate target",
-      detail: state.targetConfirmed
+      detail: mission ? "Assumed by practice scenario" : state.targetConfirmed
         ? "Target verified"
         : "Check bands on all four legs",
       done: state.targetConfirmed,
     },
     {
       title: "Confirm attachment",
-      detail: state.attached
+      detail: mission ? "Tag starts deployed in practice" : state.attached
         ? "Hook-and-loop · operator verified"
         : "One tag · visual confirmation",
       done: state.attached,
@@ -213,7 +280,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
         separation === null
           ? "Position unavailable"
           : `${separation.toFixed(1)} m horizontal`,
-      done: safe && state.attached,
+      done: mission ? mission.startMs !== null : safe && state.attached,
     },
     {
       title: "Five-minute trajectory",
@@ -241,23 +308,23 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
   ];
   const exportCSV = () => {
     download(
-      "aurora-demo-tracking.csv",
+      mission ? "aurora-task2-practice.csv" : "aurora-demo-tracking.csv",
       trackingCSV(state.fixes),
       "text/csv;charset=utf-8",
     );
     dispatch({ type: "export" });
     setNotice(
-      "Demo CSV downloaded. Export does not submit a file to the judges.",
+      "CSV downloaded locally.",
     );
   };
   return (
     <main className="wt-dashboard">
       <div className="wt-demo-bar">
         <div>
-          <span className="wt-demo-label">DEMO MODE</span>
-          <span>Map, tag and separation use demo data. AEAC aircraft telemetry below uses the backend.</span>
+          <span className="wt-demo-label">{mission ? "TASK 2 PRACTICE" : "DEMO MODE"}</span>
+          <span>{mission ? "Aircraft and tag positions come from simulator packets." : "Map, tag and separation use demo data. AEAC aircraft telemetry below uses the backend."}</span>
         </div>
-        <div className="wt-demo-controls">
+        {!mission && <div className="wt-demo-controls">
           <label htmlFor="wt-scenario">Preview state</label>
           <select
             id="wt-scenario"
@@ -280,7 +347,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
             <RotateCcw size={13} />
             New session
           </button>
-        </div>
+        </div>}
       </div>
       <header className="wt-header">
         <div className="wt-brand">
@@ -300,9 +367,9 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
             {tagFresh ? "TAG-74 LINKED · DEMO" : "TAG-74 STALE"}
           </Badge>
           <span className="wt-status-chip">
-            RSSI <b>{tagFresh ? "−78 dBm" : "—"}</b>
+            RSSI <b>{demoTag ? "−78 dBm" : "—"}</b>
             <span>
-              SNR <b>{tagFresh ? "+9.2 dB" : "—"}</b>
+              SNR <b>{demoTag ? "+9.2 dB" : "—"}</b>
             </span>
           </span>
           <span className="wt-status-chip">
@@ -310,11 +377,11 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
           </span>
           <Badge tone="amber">
             <Clock3 size={13} />
-            FLIGHT WINDOW {timer(state.windowEndsAt - state.now)}
+            FLIGHT WINDOW {Number.isFinite(state.windowEndsAt) ? timer(state.windowEndsAt - state.now) : "—"}
           </Badge>
           <span className="wt-status-chip">
-            UAV <b>{uavFresh ? "24.8 V" : "—"}</b> SAT{" "}
-            <b className="cyan">{uavFresh ? "16" : "—"}</b>
+            UAV <b>{!mission && uavFresh ? "24.8 V" : "—"}</b> SAT{" "}
+            <b className="cyan">{!mission && uavFresh ? "16" : "—"}</b>
           </span>
           <Badge tone={statusTone}>
             {safe ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
@@ -322,7 +389,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
           </Badge>
         </div>
       </header>
-      <AeacTelemetryPanel />
+      <AeacTelemetryPanel feed={feed} />
       {state.paused && (
         <div className="wt-message amber">
           Demo paused — demo telemetry and timers are frozen. AEAC aircraft telemetry continues.
@@ -330,11 +397,11 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
       )}
       <section className="wt-metrics" aria-label="Tracking metrics">
         <Metric
-          label="UAV-to-animal separation"
+          label="UAV-to-tag separation"
           badge={<Badge>GPS DISTANCE</Badge>}
           value={separation === null ? "—" : separation.toFixed(1)}
           unit="m"
-          tone={separation === null ? "amber" : safe ? "cyan" : "red"}
+          tone={departing || separation === null ? "amber" : safe ? "cyan" : "red"}
         >
           <div className="wt-spread">
             <span>Minimum: 100 m</span>
@@ -343,7 +410,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                 ? "UNKNOWN · STALE DATA"
                 : safe
                   ? `✓ OFFSET +${(separation - 100).toFixed(1)} m`
-                  : "BELOW MINIMUM"}
+                  : departing ? "DEPARTING" : "BELOW MINIMUM"}
             </span>
           </div>
           <div className="wt-gauge">
@@ -386,16 +453,16 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
           label="Estimated GNSS accuracy"
           badge={
             <Badge tone={tagFresh ? "green" : "amber"}>
-              {tagFresh ? "DEMO RTK" : "STALE"}
+              {mission ? "UNAVAILABLE" : tagFresh ? "DEMO RTK" : "STALE"}
             </Badge>
           }
-          value={tagFresh ? "±0.65" : "—"}
+          value={demoTag ? "±0.65" : "—"}
           unit="m"
           tone={tagFresh ? "green" : "amber"}
         >
           <div className="wt-spread">
-            <span>{tagFresh ? "14 satellites" : "Fix unavailable"}</span>
-            <span>{tagFresh ? "HDOP 0.85" : "HDOP —"}</span>
+            <span>{demoTag ? "14 satellites" : "Satellites —"}</span>
+            <span>{demoTag ? "HDOP 0.85" : "HDOP —"}</span>
           </div>
           <span className="wt-microcopy">
             Receiver estimate · not true-path scoring accuracy
@@ -403,7 +470,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
         </Metric>
         <Metric
           label="Latest tracker fix age"
-          badge={<Badge>{tagFresh ? "1.0 Hz DEMO" : "NO UPDATES"}</Badge>}
+          badge={<Badge>{tagFresh ? (mission ? "SIM GPS" : "1.0 Hz DEMO") : "NO UPDATES"}</Badge>}
           value={age}
           unit="s"
           tone={tagFresh ? "" : "amber"}
@@ -419,6 +486,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
       <section className="wt-workspace">
         <TrackerMap
           fixes={state.fixes}
+          latest={latest ?? null}
           uav={state.uav}
           fresh={tagFresh}
           uavFresh={uavFresh}
@@ -440,10 +508,10 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                   label="GNSS fix status"
                   tone={tagFresh ? "green" : "amber"}
                 >
-                  {tagFresh ? "● RTK fixed (demo)" : "● Stale / unavailable"}
+                  {tagFresh ? (mission ? "● Simulator GPS fix" : "● RTK fixed (demo)") : "● Stale / unavailable"}
                 </Field>
                 <Field label="Tag battery">
-                  {tagFresh ? (
+                  {demoTag ? (
                     <>
                       3.92 V <small className="green">84%</small>
                     </>
@@ -458,10 +526,10 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                   {tagFresh && latest ? `${latest.longitude.toFixed(7)}°` : "—"}
                 </Field>
                 <Field label="Satellites / HDOP">
-                  {tagFresh ? "14 sats / 0.85" : "—"}
+                  {demoTag ? "14 sats / 0.85" : "—"}
                 </Field>
                 <Field label="RF link (demo)">
-                  {tagFresh ? "−78 dBm / +9.2 dB" : "—"}
+                  {demoTag ? "−78 dBm / +9.2 dB" : "—"}
                 </Field>
               </div>
               <div className="wt-timestamp">
@@ -469,8 +537,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                 <b>{latest?.timestamp ?? "—"}</b>
               </div>
               <p className="wt-helper">
-                All measurements are illustrative. Missing live fields will
-                display —.
+                {mission ? "Tag coordinates and fix time come from the simulator. A dash marks an unavailable reading." : "All measurements are illustrative."}
               </p>
             </div>
           </section>
@@ -483,6 +550,12 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
               <Badge tone="green">STAGE {stage} OF 6</Badge>
             </div>
             <div className="wt-panel-body">
+              {mission && <p className="wt-helper">
+                The simulator starts with the tag deployed. The backend records tag fixes from the first
+                measured 100 m offset for five minutes or until the flight window ends.
+                Keep the aircraft at least 100 m away for the rest of the window.
+                Below-offset samples after start: {mission.violations}.
+              </p>}
               <ol className="wt-steps">
                 {steps.map((step, i) => (
                   <li
@@ -509,7 +582,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                 ))}
               </ol>
               <div className="wt-workflow-actions">
-                {!state.targetConfirmed && (
+                {!mission && !state.targetConfirmed && (
                   <button
                     className="wt-button primary"
                     onClick={() => dispatch({ type: "confirm-target" })}
@@ -518,7 +591,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                     Confirm target identified
                   </button>
                 )}
-                {state.targetConfirmed && !state.attached && (
+                {!mission && state.targetConfirmed && !state.attached && (
                   <button
                     className="wt-button primary"
                     onClick={() => dispatch({ type: "attach" })}
@@ -527,7 +600,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                     Confirm one tag attached
                   </button>
                 )}
-                {state.attached && state.trajectoryStartedAt === null && (
+                {!mission && state.attached && state.trajectoryStartedAt === null && (
                   <button
                     className="wt-button primary"
                     disabled={!startEnabled}
@@ -547,7 +620,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                     ? "Separation unknown. Fresh UAV and tag fixes required."
                     : safe
                       ? "Maintain ≥100 m offset for the rest of the flight window."
-                      : "UAV is inside the 100 m minimum offset."}
+                      : departing ? "Aircraft is departing. Recording starts automatically at 100 m." : "UAV is inside the 100 m minimum offset."}
                 </p>
               </div>
             </div>
@@ -563,7 +636,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
             </h2>
             <Badge tone={tagFresh ? "green" : "amber"}>
               {state.fixes.length} FIXES ·{" "}
-              {tagFresh ? "RECORDING" : "WAITING FOR LINK"}
+              {mission && complete ? "WINDOW CLOSED" : mission && mission.startMs === null ? "AWAITING START" : tagFresh ? "RECORDING" : "WAITING FOR LINK"}
             </Badge>
           </div>
           <div className="wt-panel-body">
@@ -571,8 +644,8 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
               <span>
                 Duration{" "}
                 <b>
-                  {firstTime !== null && latestTime !== null
-                    ? timer(latestTime - firstTime)
+                  {firstTime !== null && recordedEndTime !== null
+                    ? timer(recordedEndTime - firstTime)
                     : "—"}
                 </b>
               </span>
@@ -580,12 +653,12 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                 Coverage{" "}
                 <b>
                   {firstTime === null ? "—" : utc(firstTime)} —{" "}
-                  {latestTime === null ? "—" : utc(latestTime)}
+                  {recordedEndTime === null ? "—" : utc(recordedEndTime)}
                 </b>
               </span>
               <span className={gaps ? "amber" : "green"}>
                 Update gaps: {gaps}
-                {!tagFresh ? " + ongoing outage" : ""}
+                {!tagFresh && !complete ? " + ongoing outage" : ""}
               </span>
             </div>
             <div className="wt-csv-wrap">
@@ -616,7 +689,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
                 onClick={exportCSV}
               >
                 <ArrowDownToLine size={15} />
-                Export Tracking CSV
+                {mission && !complete ? "Export partial CSV" : "Export Tracking CSV"}
               </button>
               <button
                 className="wt-button"
@@ -640,8 +713,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
             </p>
             {!complete && (
               <p className="wt-helper">
-                Export available now. Full five-minute trajectory is not yet
-                complete.
+                The tracking window is still open. A download includes the fixes recorded so far.
               </p>
             )}
             <p className="wt-helper">
@@ -659,7 +731,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
               <Activity size={16} />
               Mission Event Log
             </h2>
-            <Badge>DEMO SESSION</Badge>
+            <Badge>{mission ? "PRACTICE SESSION" : "DEMO SESSION"}</Badge>
           </div>
           <div className="wt-panel-body">
             <div
@@ -690,7 +762,7 @@ export default function WildlifeTracker({ visible }: { visible: boolean }) {
               className="wt-text-button"
               onClick={() =>
                 download(
-                  "aurora-demo-events.log",
+                  mission ? "aurora-practice-events.log" : "aurora-demo-events.log",
                   [...state.events]
                     .reverse()
                     .map((e) => `${e.timestamp} [${e.kind}] ${e.message}`)

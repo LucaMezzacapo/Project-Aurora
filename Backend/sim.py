@@ -22,7 +22,8 @@ SPEED_MS = 18.0
 CLIMB_MS = 4.0              # vertical speed toward a target altitude
 ALTITUDE_M = 100.0
 TICK_S = 0.2
-SIM_PACKET_TEST = os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
+PRACTICE = os.getenv("AURORA_TRACKER_PRACTICE") == "1"
+SIM_PACKET_TEST = PRACTICE or os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
 SIM_INVALID = os.getenv("AURORA_SIM_INVALID") == "1"
 
 METERS_PER_DEG_LAT = 111_111.0
@@ -59,6 +60,7 @@ def main():
 
     start = time.time()
     tick = 0
+    practice_epoch = None
 
     while True:
         # Drain incoming commands: drives TCP accept and handles guided targets.
@@ -77,7 +79,20 @@ def main():
 
         t = time.time() - start
 
-        if mode == "circle":
+        if PRACTICE:
+            if practice_epoch is None:
+                practice_epoch = time.monotonic()
+            elapsed = time.monotonic() - practice_epoch
+            # Start alongside the deployed tag, then depart and orbit the search area.
+            radius = min(220, 12 * max(0, elapsed - 8))
+            theta = elapsed * SPEED_MS / 220
+            lat, lon = offset_to_latlon(50.0970884, -110.7328077,
+                                        radius * math.cos(theta), radius * math.sin(theta))
+            tag_lat, tag_lon = offset_to_latlon(50.0970884, -110.7328077,
+                                                35 * math.sin(elapsed / 36),
+                                                45 * math.sin(elapsed / 54))
+            hdg = math.atan2(math.cos(theta), -math.sin(theta))
+        elif mode == "circle":
             theta = omega * t
             lat, lon = offset_to_latlon(CENTER_LAT, CENTER_LON, RADIUS_M * math.cos(theta), RADIUS_M * math.sin(theta))
             hdg = math.atan2(math.cos(theta), -math.sin(theta))  # tangent to the circle
@@ -129,8 +144,9 @@ def main():
                 0,
                 mavutil.mavlink.MAV_STATE_ACTIVE,
             )
+            fix_usec = time.time_ns() // 1000
             conn.mav.gps_raw_int_send(
-                int(time.time() * 1e6),
+                fix_usec,
                 3,                              # 3D fix
                 int(lat * 1e7), int(lon * 1e7), int(alt * 1000),
                 120,                            # eph -> HDOP 1.20
@@ -139,6 +155,10 @@ def main():
                 int(heading * 100),
                 10 + (tick // 5) % 3,           # 10-12 satellites
             )
+            if PRACTICE:
+                # GPS2 is reserved for the independent tag in this local scenario.
+                conn.mav.gps2_raw_send(fix_usec, 3, round(tag_lat * 1e7), round(tag_lon * 1e7),
+                                       0, 100, 150, 65535, 65535, 12, 0, 0)
             battery_pct = max(0, 100 - int(t / 30))  # drain ~2%/min
             conn.mav.sys_status_send(
                 0, 0, 0,
@@ -155,7 +175,7 @@ def main():
                     b"SIM_HACC": rng.uniform(0.5, 5.0),
                     b"SIM_VACC": rng.uniform(1.0, 8.0),
                     # Codes 0–5 map to the six allowed modes.
-                    b"SIM_MODE": float(rng.randrange(6)),
+                    b"SIM_MODE": 5.0 if PRACTICE else float(rng.randrange(6)),
                     b"SIM_RC": rng.uniform(0.0, 1.0),
                     b"SIM_TLM": rng.uniform(0.0, 1.0),
                 }

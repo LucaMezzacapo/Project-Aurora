@@ -68,6 +68,7 @@ function ResizeMap({
 }
 export default function TrackerMap({
   fixes,
+  latest,
   uav,
   fresh,
   uavFresh,
@@ -75,6 +76,7 @@ export default function TrackerMap({
   visible,
 }: {
   fixes: TrackerFix[];
+  latest?: TrackerFix | null;
   uav: Position | null;
   fresh: boolean;
   uavFresh: boolean;
@@ -84,7 +86,7 @@ export default function TrackerMap({
   const [map, setMap] = useState<LeafletMap | null>(null);
   const [layer, setLayer] = useState<"grid" | "street">("grid");
   const [tileError, setTileError] = useState(false);
-  const last = fixes.at(-1);
+  const last = latest === undefined ? fixes.at(-1) : latest;
   const trailSegments = useMemo(() => {
     const segments: [number, number][][] = [];
     fixes.forEach((fix, i) => {
@@ -264,7 +266,7 @@ export default function TrackerMap({
               opacity={fresh ? 1 : 0.45}
             >
               <Tooltip permanent direction="top" offset={[0, -14]}>
-                <b>● TAG-74</b> / Decoy deer{!fresh ? " · STALE" : ""}
+                <b>● TAG-74</b> / Tracker tag{!fresh ? " · STALE" : ""}
               </Tooltip>
             </Marker>
           )}
@@ -294,7 +296,7 @@ export default function TrackerMap({
       <div className="wt-map-legend">
         <span>
           <i className="wt-line cyan" />
-          Animal trail
+          Tag trail
         </span>
         <span>
           <i className="wt-line amber" />

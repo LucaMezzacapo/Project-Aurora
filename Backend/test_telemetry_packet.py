@@ -161,7 +161,7 @@ def main():
     parser.add_argument("--url", default="ws://127.0.0.1:8000/ws/telemetry")
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--warmup", type=float, default=10)
-    parser.add_argument("--expected-hz", type=float, default=1)
+    parser.add_argument("--expected-hz", type=float, default=1.25, help="Expected packet rate (default: 1.25 Hz / 0.8 s)")
     args = parser.parse_args()
     if args.samples < 2 or args.warmup < 0 or args.expected_hz <= 0:
         parser.error("samples must be >= 2, warmup >= 0, and expected-hz > 0")

@@ -1,4 +1,4 @@
-// Browser boundary for the existing /ws/telemetry snapshot. No animal-tag data.
+import type { TrackerFix } from "./tracker-model";
 export const FLIGHT_MODES = [
   "off", "idle", "link-lost", "failsafe", "armed-pilot", "armed-automatic",
 ] as const;
@@ -27,7 +27,17 @@ export const NUMBER_FIELDS = {
   rc_link_status: [0, 1],
   telemetry_link_status: [0, 1],
 } as const;
+export type Practice = {
+  aircraft: TrackerFix | null;
+  tag: TrackerFix | null;
+  startMs: number | null;
+  windowEndMs: number | null;
+  separation: number | null;
+  violations: number;
+  fixes: TrackerFix[];
+};
 export type AeacFrame = {
+  practice?: Practice;
   packet: AeacPacket | null;
   readings: Partial<AeacPacket>;
   issues: string[];
@@ -37,6 +47,19 @@ export const STREAM_STALE_MS = 3000;
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function fix(value: unknown): value is TrackerFix {
+  return record(value) && typeof value.timestamp === "string" && Number.isFinite(Date.parse(value.timestamp))
+    && typeof value.latitude === "number" && Math.abs(value.latitude) <= 90
+    && typeof value.longitude === "number" && Math.abs(value.longitude) <= 180
+    && value.accuracyM === null;
+}
+function practice(value: unknown): value is Practice {
+  if (!record(value)) return false;
+  return (value.aircraft === null || fix(value.aircraft)) && (value.tag === null || fix(value.tag))
+    && Array.isArray(value.fixes) && value.fixes.every(fix)
+    && [value.startMs, value.windowEndMs, value.separation].every(v => v === null || Number.isFinite(v))
+    && typeof value.violations === "number" && Number.isInteger(value.violations);
 }
 function validReadings(value: Record<string, unknown>): Partial<AeacPacket> {
   const readings: Partial<AeacPacket> = {};
@@ -58,6 +81,11 @@ export function decodeAeacFrame(value: unknown): AeacFrame {
   if (!record(value) || !("aeac_packet" in value)) {
     throw new Error("Backend message does not include AEAC packet information.");
   }
+  let mission: Practice | undefined;
+  if ("tracker_practice" in value) {
+    if (!practice(value.tracker_practice)) throw new Error("Invalid tracker practice frame.");
+    mission = value.tracker_practice;
+  }
   const issues = Array.isArray(value.aeac_packet_issues)
     ? value.aeac_packet_issues.filter((issue): issue is string => typeof issue === "string")
     : [];
@@ -78,6 +106,7 @@ export function decodeAeacFrame(value: unknown): AeacFrame {
     issues.push("Backend has not produced a complete AEAC packet yet.");
   }
   return {
+    practice: mission,
     packet,
     readings: packet ?? validReadings(value),
     issues,

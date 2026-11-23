@@ -71,3 +71,12 @@ test("observed rate measures actual arrival spacing, including gaps", () => {
   assert.equal(observedRate([1000, 1200, 1400]), 5);
   assert.equal(observedRate([1000, 2000, 5000]), 0.5);
 });
+
+test("practice mode is explicit even before the first GPS sample", () => {
+  const mission = { aircraft: null, tag: null, separation: null, windowEndMs: null,
+    startMs: null, violations: 0, fixes: [] };
+  const snapshot = { aeac_packet: null, tracker_practice: mission };
+  assert.deepEqual(decodeAeacFrame(snapshot).practice, mission);
+  assert.throws(() => decodeAeacFrame({ ...snapshot, tracker_practice: { ...mission, fixes: [false] } }));
+  assert.equal(decodeAeacFrame({ aeac_packet: null }).practice, undefined);
+});

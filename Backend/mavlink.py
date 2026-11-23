@@ -9,13 +9,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from azimuth_calc import calculate_azimuth
 from pymavlink import mavutil
+from practice_mission import PracticeMission
 from telemetry_packet import TelemetryPacket
 from pydantic import BaseModel, ValidationError
 
 # To run the backend for testing AEAC packet info, 
 # use: AURORA_AEAC_PACKET_TEST=1 python3 -m uvicorn mavlink:app --port 8000
 
-SIM_PACKET_TEST = os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
+PRACTICE = os.getenv("AURORA_TRACKER_PRACTICE") == "1"
+practice_mission = PracticeMission()
+SIM_PACKET_TEST = PRACTICE or os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
 
 SIM_FIELDS = {
     "SIM_AGL": "altitude_agl_m",
@@ -240,7 +243,13 @@ def mavlinkReader():
         if msg is None:
             continue
         
-        elif msg.get_type() == "NAMED_VALUE_FLOAT":
+        if (PRACTICE and hb is not None and msg.get_srcSystem() == hb.get_srcSystem()
+                and msg.get_srcComponent() == hb.get_srcComponent()
+                and msg.get_type() in ("GPS_RAW_INT", "GPS2_RAW")):
+            with telemetry_lock:
+                practice_mission.receive(msg)
+
+        if msg.get_type() == "NAMED_VALUE_FLOAT":
             if not SIM_PACKET_TEST:
                 continue
 
@@ -483,6 +492,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # 1. Gather all current state data
             with telemetry_lock:
                 snapshot = dict(telemetryInfo)
+                if PRACTICE:
+                    snapshot["tracker_practice"] = practice_mission.snapshot()
             with mission_lock:
                 snapshot["mission_status"] = mission_state["status"]
             with antenna_lock:
@@ -534,7 +545,7 @@ async def websocket_endpoint(websocket: WebSocket):
             snapshot["aeac_simulation"] = SIM_PACKET_TEST
 
             await websocket.send_json(snapshot)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.8)
             
     except WebSocketDisconnect:
         print("Frontend disconnected")

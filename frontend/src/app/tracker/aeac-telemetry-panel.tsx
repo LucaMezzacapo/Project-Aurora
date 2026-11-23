@@ -1,5 +1,5 @@
 import { Activity, Radio, ShieldAlert } from "lucide-react";
-import { useAeacTelemetry } from "./use-aeac-telemetry";
+import type { useAeacTelemetry } from "./use-aeac-telemetry";
 import "./aeac-telemetry.css";
 
 const display = (value: number | undefined, digits = 2, unit = "") =>
@@ -9,8 +9,7 @@ const STATUS = {
   waiting: "Waiting for telemetry", stale: "Stream stale", receiving: "Receiving",
 };
 
-export default function AeacTelemetryPanel() {
-  const feed = useAeacTelemetry();
+export default function AeacTelemetryPanel({ feed }: { feed: ReturnType<typeof useAeacTelemetry> }) {
   const readings = feed.frame?.readings ?? {};
   const current = feed.status === "receiving" && !feed.error;
   const complete = current && feed.frame?.packet !== null && feed.frame !== null;

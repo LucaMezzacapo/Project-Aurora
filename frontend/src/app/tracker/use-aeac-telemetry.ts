@@ -69,7 +69,7 @@ export function useAeacTelemetry() {
   }, []);
   const status = streamStatus(feed.connection, feed.receivedAt, now);
   return {
-    ...feed, status,
+    ...feed, status, now: Math.max(now, feed.receivedAt ?? 0),
     rate: status === "receiving" && !feed.error ? observedRate(feed.arrivals) : null,
     ageSeconds: feed.receivedAt === null ? null : Math.max(0, (now - feed.receivedAt) / 1000),
   };
