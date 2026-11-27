@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:tracker": "node --test tests/tracker-model.test.mjs",
-    "test:aeac": "node --test tests/aeac-telemetry.test.mjs"
+    "test:aeac": "node --test tests/aeac-telemetry.test.mjs",
+    "test:traffic": "node --test tests/traffic.test.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

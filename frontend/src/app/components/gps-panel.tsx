@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Circle, useMap, useMapEvents } from 'react-leaflet';
 import { divIcon, type Map as LeafletMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { ReactNode } from 'react';
+import { trafficLive, type TrafficState, type TrafficStatus } from '../traffic';
+
+// Keep-out zone colours (hex, because Leaflet writes them into SVG attributes).
+const TRAFFIC_COLOR: Record<TrafficStatus, string> = {
+  clear: '#00d4ff',   // --accent-cyan, distinct from our green drone
+  near: '#f59e0b',    // --accent-amber
+  inside: '#f43f5e',  // --accent-red
+  unknown: '#6b84a8', // --text-muted
+};
+const TRAFFIC_STALE_COLOR = '#3d5472'; // --text-dim
 
 // Simulator currently flies at UK coordinates; used until the first fix arrives
 const DEFAULT_CENTER: [number, number] = [51.5074, -0.1278];
@@ -31,6 +41,24 @@ interface GpsPanelProps {
   missionWaypoints?: Array<{ latitude: number; longitude: number; altitude: number; order: number }>;
   guidedControls?: ReactNode;
   guidedTarget?: { latitude: number; longitude: number; altitude: number } | null;
+  traffic?: TrafficState | null;
+}
+
+// Aircraft IDs come from an outside server and end up in marker HTML, so escape them.
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(text: string) {
+  return text.replace(/[&<>"']/g, c => HTML_ESCAPES[c] ?? c);
+}
+
+function trafficIcon(id: string, altitudeM: number, color: string) {
+  return divIcon({
+    className: 'traffic-icon',
+    html: `<div class="traffic-marker" style="--traffic-color: ${color}">
+      <span class="traffic-dot"></span><span class="traffic-label">${escapeHtml(id)} · ${Math.round(altitudeM)} m</span>
+    </div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  });
 }
 
 
@@ -57,7 +85,8 @@ function FollowDrone({ position, missionPath, paused, onPause }: { position: [nu
   return null;
 }
 
-export function GpsPanel({ latitude, longitude, heading, trail, fixType, satellites, hdop, live, missionControls, missionWaypoints, guidedControls, guidedTarget }: GpsPanelProps) {
+export function GpsPanel({ latitude, longitude, heading, trail, fixType, satellites, hdop, live, missionControls, missionWaypoints, guidedControls, guidedTarget, traffic }: GpsPanelProps) {
+  const trafficIsLive = trafficLive(traffic ?? null);
   const [paused, setPaused] = useState(false);
   const [map, setMap] = useState<LeafletMap | null>(null);
 
@@ -144,6 +173,24 @@ export function GpsPanel({ latitude, longitude, heading, trail, fixType, satelli
           {trail.length > 1 && <Polyline positions={trail} pathOptions={{ color: 'var(--accent-green)', weight: 2, opacity: 0.7 }} />}
           {position && <Marker position={position} icon={icon} />}
           {guidedTarget && <Marker position={[guidedTarget.latitude, guidedTarget.longitude]} icon={guidedIcon} />}
+          {traffic?.aircraft.map(a => {
+            const color = trafficIsLive ? TRAFFIC_COLOR[a.status] : TRAFFIC_STALE_COLOR;
+            return (
+              <Circle
+                key={`zone-${a.id}`}
+                center={[a.latitude, a.longitude]}
+                radius={a.keepoutRadiusM}
+                pathOptions={{ color, weight: 2, fillColor: color, fillOpacity: a.status === 'inside' ? 0.3 : 0.12, dashArray: trafficIsLive ? undefined : '4 6' }}
+              />
+            );
+          })}
+          {traffic?.aircraft.map(a => (
+            <Marker
+              key={`traffic-${a.id}`}
+              position={[a.latitude, a.longitude]}
+              icon={trafficIcon(a.id, a.altitudeM, trafficIsLive ? TRAFFIC_COLOR[a.status] : TRAFFIC_STALE_COLOR)}
+            />
+          ))}
           <FollowDrone position={position} missionPath={missionPath} paused={paused} onPause={() => setPaused(true)} />
         </MapContainer>
         {paused && (

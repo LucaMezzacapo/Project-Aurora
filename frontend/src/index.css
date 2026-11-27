@@ -867,3 +867,115 @@ h1, h2, h3, h4 { font-weight: 600; line-height: 1.2; }
   border: 1px solid var(--border-light) !important;
   border-radius: 8px !important;
 }
+
+/* ─── Airspace traffic (Task 1 deconfliction) ─── */
+.traffic-alert {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+}
+.traffic-alert-inside {
+  color: var(--accent-red);
+  background: rgba(244, 63, 94, 0.14);
+  animation: pulse 2s infinite;
+}
+.traffic-alert-near {
+  color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.traffic-feed-live    { color: var(--accent-green); }
+.traffic-feed-stale   { color: var(--accent-amber); }
+.traffic-feed-offline { color: var(--accent-red); }
+
+.traffic-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.traffic-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.traffic-table th {
+  text-align: left;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.traffic-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.traffic-table-stale td { color: var(--text-dim); }
+
+.traffic-text-clear   { color: var(--accent-cyan) !important; }
+.traffic-text-near    { color: var(--accent-amber) !important; }
+.traffic-text-inside  { color: var(--accent-red) !important; font-weight: 600; }
+.traffic-text-unknown { color: var(--text-muted) !important; }
+.traffic-text-stale   { color: var(--text-dim) !important; font-weight: normal; }
+
+.traffic-log {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.traffic-log-row {
+  display: flex;
+  gap: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.traffic-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* Map marker: coloured dot plus "ID · altitude" label */
+.traffic-icon { background: none; border: none; }
+.traffic-marker {
+  position: relative;
+  width: 12px;
+  height: 12px;
+}
+.traffic-dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--traffic-color);
+  border: 2px solid #04140c;
+}
+.traffic-label {
+  position: absolute;
+  left: 16px;
+  top: -3px;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--traffic-color);
+  text-shadow: 0 0 3px #050a14, 0 0 3px #050a14;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .traffic-alert-inside { animation: none; }
+}
+
+@media (max-width: 700px) {
+  .traffic-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .traffic-table { font-size: 11px; }
+}

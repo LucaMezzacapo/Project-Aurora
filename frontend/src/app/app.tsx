@@ -10,6 +10,8 @@ import Button from './components/button';
 import { parseMissionFile, validateWaypoints, type Waypoint } from './mission';
 import { validateGuided, type GuidedWaypoint } from './guided-waypoint';
 import { calculateAzimuth } from './geo';
+import { markTrafficStale, parseTraffic, type TrafficState } from './traffic';
+import { TrafficAlertBanner, TrafficPanel } from './components/traffic-panel';
 
 const MAX_HISTORY = 30;
 const MAX_TRAIL = 300;
@@ -141,6 +143,9 @@ export default function App() {
   const [updatingTracking, setUpdatingTracking] = useState(false);
   const [antennaMsg, setAntennaMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
+  // ─── Other-aircraft traffic (only present when the backend runs with AURORA_TRAFFIC_URL) ───
+  const [traffic, setTraffic] = useState<TrafficState | null>(null);
+
   const prevMissionStatusRef = useRef<MissionStatus>('idle');
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,6 +191,8 @@ export default function App() {
         if (typeof data.tracking_status === 'string') {
           setTrackingStatus(data.tracking_status as TrackingStatus);
         }
+
+        setTraffic(parseTraffic(data.traffic));
 
       setTele(prev => {
         const nextTele = {
@@ -246,6 +253,7 @@ export default function App() {
         socketRef.current = null;
         if (closed) return;
         setStatus('disconnected');
+        setTraffic(markTrafficStale);
         reconnectRef.current = setTimeout(connect, RECONNECT_DELAY);
       };
     };
@@ -559,6 +567,8 @@ export default function App() {
       {/* Main */}
       <main className="main">
 
+        <TrafficAlertBanner traffic={traffic} />
+
         {/* Row 1: 4 metric cards side by side */}
         <div className="row-4">
           <MetricCard
@@ -612,10 +622,18 @@ export default function App() {
             missionWaypoints={waypoints}
             guidedControls={guidedControls}
             guidedTarget={guidedTarget}
+            traffic={traffic}
           />
           <NavigationPanel groundSpeed={tele.groundSpeed} heading={tele.heading} live={connected && tele.groundSpeed != null && tele.heading != null} />
           <OrientationPanel pitch={tele.pitch} roll={tele.roll} yaw={tele.yaw} live={connected && tele.pitch != null && tele.roll != null && tele.yaw != null} />
         </div>
+
+        {/* Other-aircraft traffic: only when the backend has a traffic feed */}
+        {traffic && (
+          <div className="row-1">
+            <TrafficPanel traffic={traffic} />
+          </div>
+        )}
 
         {/* Row 4: Antenna tracking */}
         <div className="row-1">
