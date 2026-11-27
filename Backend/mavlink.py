@@ -11,14 +11,24 @@ from azimuth_calc import calculate_azimuth
 from pymavlink import mavutil
 from practice_mission import PracticeMission
 from telemetry_packet import TelemetryPacket
+from traffic_monitor import TrafficMonitor, fresh_position
+from comp_server_client import run_traffic_client
 from pydantic import BaseModel, ValidationError
 
-# To run the backend for testing AEAC packet info, 
+# To run the backend for testing AEAC packet info,
 # use: AURORA_AEAC_PACKET_TEST=1 python3 -m uvicorn mavlink:app --port 8000
+# To receive simulated traffic (Task 1 deconfliction) from mock_comp_server.py,
+# use: AURORA_TRAFFIC_URL=ws://127.0.0.1:8765 python3 -m uvicorn mavlink:app --port 8000
 
 PRACTICE = os.getenv("AURORA_TRACKER_PRACTICE") == "1"
 practice_mission = PracticeMission()
 SIM_PACKET_TEST = PRACTICE or os.getenv("AURORA_AEAC_PACKET_TEST") == "1"
+
+# Other-aircraft traffic is off unless a feed URL is given, so default behaviour is unchanged.
+TRAFFIC_URL = os.getenv("AURORA_TRAFFIC_URL")
+traffic_monitor = TrafficMonitor() if TRAFFIC_URL else None
+traffic_task = None  # keep a reference so the background task isn't garbage-collected
+own_position_time = None  # time.time() of the last GLOBAL_POSITION_INT, for the staleness check
 
 SIM_FIELDS = {
     "SIM_AGL": "altitude_agl_m",
@@ -227,7 +237,7 @@ def buildPacket(snapshot):
 
 # Drone connection
 def mavlinkReader():
-    global connection
+    global connection, own_position_time
     # Local mock sim (Backend/sim.py). For DroneSim use tcp:206.189.60.90:<sim port>
     conn = mavutil.mavlink_connection("tcp:127.0.0.1:5760")
     print("Waiting heartbeat...")
@@ -290,10 +300,13 @@ def mavlinkReader():
             altitude = msg.alt / 1000
             relative_altitude = msg.relative_alt / 1000
             # print(f"Plane Position: Latitude = {latitude}, Longitude = {longitude}, Altitude = {altitude}, Relative Altitude = {relative_altitude}")
-            telemetryInfo["latitude"] = latitude
-            telemetryInfo["longitude"] = longitude
-            telemetryInfo["altitude"] = altitude
-            telemetryInfo["relative_altitude"] = relative_altitude
+            # Written together under the lock so readers never mix two different fixes.
+            with telemetry_lock:
+                telemetryInfo["latitude"] = latitude
+                telemetryInfo["longitude"] = longitude
+                telemetryInfo["altitude"] = altitude
+                telemetryInfo["relative_altitude"] = relative_altitude
+                own_position_time = time.time()
 
         elif msg.get_type() == 'SYS_STATUS':
             battery_percentage = msg.battery_remaining
@@ -330,11 +343,24 @@ def mavlinkReader():
 
         telemetryInfo["last_update"] = time.time()
 
+def own_position():
+    # Our drone for the keep-out check: altitude above home, matching the traffic feed's stand-in
+    # reference. If no position has arrived for OWN_POSITION_STALE_S (link or sim down), report it
+    # as unknown so the check pauses instead of judging a frozen position.
+    with telemetry_lock:
+        return fresh_position(telemetryInfo["latitude"], telemetryInfo["longitude"],
+                              telemetryInfo["relative_altitude"], own_position_time, time.time())
+
+
 @app.on_event("startup")
 async def startup_event():
+    global traffic_task
     print("Starting MAVLink reader thread...")
     thread = threading.Thread(target=mavlinkReader, daemon=True)
     thread.start()
+    if traffic_monitor is not None:
+        print(f"Starting traffic feed client for {TRAFFIC_URL}...")
+        traffic_task = asyncio.create_task(run_traffic_client(TRAFFIC_URL, traffic_monitor, own_position))
 
 @app.get("/")
 async def root():
@@ -499,6 +525,10 @@ async def websocket_endpoint(websocket: WebSocket):
             with antenna_lock:
                 snapshot["ground_station"] = antenna_state["ground_station"]
                 snapshot["tracking_status"] = antenna_state["tracking_status"]
+            if traffic_monitor is not None:
+                # Evaluated once per traffic frame by the feed client (same event loop), so every
+                # dashboard sees the same violation count; here we only read it.
+                snapshot["traffic"] = traffic_monitor.snapshot()
 
             # 2. Extract required variables for math
             gcs = snapshot.get("ground_station")
