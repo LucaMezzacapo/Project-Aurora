@@ -29,7 +29,7 @@ import {
   trackingCSV,
   TRAJECTORY_MS,
 } from "./tracker-model";
-import { useAeacTelemetry } from "./use-aeac-telemetry";
+import { startTask2Demo, useAeacTelemetry } from "./use-aeac-telemetry";
 import type { Practice } from "./aeac-telemetry";
 import type { Action, AuditEvent, TrackerState, Scenario } from "./tracker-model";
 const timer = (ms: number) => {
@@ -172,10 +172,10 @@ function PracticeSession({ mission, ...props }: SessionProps & { mission: Practi
   const [finalExport, setFinalExport] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { now } = props.feed;
-  const deployed = mission.windowEndMs !== null;
+  const deployed = mission.phase === "released";
   const state: TrackerState = {
     now, windowEndsAt: mission.windowEndMs ?? Infinity, trajectoryStartedAt: mission.startMs,
-    attached: deployed, targetConfirmed: deployed, paused: false, scenario: "tracking",
+    attached: deployed, targetConfirmed: deployed || mission.phase === "dropping", paused: false, scenario: "tracking",
     fixes: mission.fixes, uav: mission.aircraft,
     uavUpdatedAt: mission.aircraft ? Date.parse(mission.aircraft.timestamp) : null,
     events: [...actions], exported: finalExport, submitted,
@@ -204,6 +204,19 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
 }) {
   const [resetOpen, setResetOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [startMessage, setStartMessage] = useState("");
+  async function startPractice() {
+    setStarting(true);
+    try {
+      await startTask2Demo();
+      setStartMessage("Start requested. Waiting for the simulator.");
+    } catch (error) {
+      setStartMessage(error instanceof Error ? error.message : "Start failed. Please retry.");
+    } finally {
+      setStarting(false);
+    }
+  }
   const latest = mission ? mission.tag : state.fixes.at(-1);
   const latestTime = latest ? Date.parse(latest.timestamp) : null;
   const recordedEnd = state.fixes.at(-1);
@@ -223,7 +236,11 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
   const complete = state.trajectoryStartedAt !== null && state.now >= end;
   const windowOver = state.now >= state.windowEndsAt;
   const gaps = recordingGaps(state.fixes);
-  const status = mission && state.trajectoryStartedAt === null && !windowOver && separation !== null
+  const deploymentStatus = mission && {
+    connecting: "WAITING FOR SIMULATOR", ready: "READY TO START", approach: "FLYING TO ANIMAL",
+    dropping: `DROPPING TRACKER · ${mission.dropSecondsLeft} s`, released: "",
+  }[mission.phase];
+  const status = deploymentStatus || (mission && state.trajectoryStartedAt === null && !windowOver && separation !== null
     ? "AWAITING 100 M OFFSET" :
     separation === null
       ? "SEPARATION UNKNOWN"
@@ -235,7 +252,7 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
             ? "TRAJECTORY COMPLETE"
             : state.trajectoryStartedAt === null
               ? "READY FOR TRACKING"
-              : "SAFE TRACKING · ACTIVE";
+              : "SAFE TRACKING · ACTIVE");
   const departing = !!mission && mission.startMs === null && !windowOver;
   const statusTone =
     departing || separation === null || windowOver ? "amber" : safe ? "green" : "red";
@@ -261,15 +278,15 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
 
   const steps = [
     {
-      title: "Locate target",
-      detail: mission ? "Assumed by practice scenario" : state.targetConfirmed
+      title: mission ? "Fly to the animal" : "Locate target",
+      detail: mission ? (state.targetConfirmed ? "Arrived at the animal" : "Destination: target search centre") : state.targetConfirmed
         ? "Target verified"
         : "Check bands on all four legs",
       done: state.targetConfirmed,
     },
     {
-      title: "Confirm attachment",
-      detail: mission ? "Tag starts deployed in practice" : state.attached
+      title: mission ? "Drop tracker" : "Confirm attachment",
+      detail: mission ? (state.attached ? "Tracker dropped" : mission.phase === "dropping" ? `${mission.dropSecondsLeft} s remaining` : "30-second simulated drop") : state.attached
         ? "Hook-and-loop · operator verified"
         : "One tag · visual confirmation",
       done: state.attached,
@@ -485,6 +502,7 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
       </section>
       <section className="wt-workspace">
         <TrackerMap
+          showApproach={mission?.phase === "ready" || mission?.phase === "approach"}
           fixes={state.fixes}
           latest={latest ?? null}
           uav={state.uav}
@@ -541,6 +559,11 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
               </p>
             </div>
           </section>
+          {mission && <div className="wt-workflow-actions">
+            <button className="wt-button primary" disabled={starting || !current || !uavFresh || mission.phase !== "ready"}
+              onClick={startPractice}><Play size={14} /> Start Task 2 Demo</button>
+            {mission.phase === "ready" && startMessage && <p role="status">{startMessage}</p>}
+          </div>}
           <section className="wt-panel wt-workflow">
             <div className="wt-panel-heading">
               <h2>
@@ -551,7 +574,7 @@ function TrackerDashboard({ visible, feed, state, dispatch, mission }: SessionPr
             </div>
             <div className="wt-panel-body">
               {mission && <p className="wt-helper">
-                The simulator starts with the tag deployed. The backend records tag fixes from the first
+                Fly to the animal and hold for 30 seconds to drop the tracker. The backend records tag fixes from the first
                 measured 100 m offset for five minutes or until the flight window ends.
                 Keep the aircraft at least 100 m away for the rest of the window.
                 Below-offset samples after start: {mission.violations}.

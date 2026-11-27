@@ -14,6 +14,13 @@ const INITIAL_FEED: Feed = {
 };
 const WS_URL = import.meta.env.VITE_TELEMETRY_WS_URL ?? "ws://127.0.0.1:8000/ws/telemetry";
 
+export async function startTask2Demo() {
+  const url = new URL("/practice/task2/start", WS_URL);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error("Could not start the demo. Check the simulator connection and retry.");
+}
+
 export function useAeacTelemetry() {
   const [feed, setFeed] = useState<Feed>(INITIAL_FEED);
   const [now, setNow] = useState(() => Date.now());

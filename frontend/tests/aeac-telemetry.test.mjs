@@ -73,7 +73,7 @@ test("observed rate measures actual arrival spacing, including gaps", () => {
 });
 
 test("practice mode is explicit even before the first GPS sample", () => {
-  const mission = { aircraft: null, tag: null, separation: null, windowEndMs: null,
+  const mission = { phase: "connecting", dropSecondsLeft: 0, aircraft: null, tag: null, separation: null, windowEndMs: null,
     startMs: null, violations: 0, fixes: [] };
   const snapshot = { aeac_packet: null, tracker_practice: mission };
   assert.deepEqual(decodeAeacFrame(snapshot).practice, mission);

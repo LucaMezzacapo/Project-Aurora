@@ -28,6 +28,8 @@ export const NUMBER_FIELDS = {
   telemetry_link_status: [0, 1],
 } as const;
 export type Practice = {
+  phase: "connecting" | "ready" | "approach" | "dropping" | "released";
+  dropSecondsLeft: number;
   aircraft: TrackerFix | null;
   tag: TrackerFix | null;
   startMs: number | null;
@@ -56,7 +58,10 @@ function fix(value: unknown): value is TrackerFix {
 }
 function practice(value: unknown): value is Practice {
   if (!record(value)) return false;
-  return (value.aircraft === null || fix(value.aircraft)) && (value.tag === null || fix(value.tag))
+  return typeof value.phase === "string" && ["connecting", "ready", "approach", "dropping", "released"].includes(value.phase)
+    && typeof value.dropSecondsLeft === "number" && Number.isInteger(value.dropSecondsLeft)
+    && value.dropSecondsLeft >= 0 && value.dropSecondsLeft <= 30
+    && (value.aircraft === null || fix(value.aircraft)) && (value.tag === null || fix(value.tag))
     && Array.isArray(value.fixes) && value.fixes.every(fix)
     && [value.startMs, value.windowEndMs, value.separation].every(v => v === null || Number.isFinite(v))
     && typeof value.violations === "number" && Number.isInteger(value.violations);

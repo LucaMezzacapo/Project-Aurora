@@ -8,7 +8,7 @@ Run these in three terminals, starting in the project root in each terminal.
 | 2. Backend | `cd Backend && AURORA_TRACKER_PRACTICE=1 python3 -m uvicorn mavlink:app --port 8000` |
 | 3. Dashboard | `cd frontend && npm run dev` |
 
-Open the Vite URL and select **Wildlife Tracker**. Starting the backend connects it to the simulator and starts the rehearsal. The scripted route begins with the tag already deployed. The tag moves along a walking path and the aircraft departs, then orbits. The simulator sends two MAVLink GPS messages per sample, with a shared source timestamp. GPS_RAW_INT carries the aircraft position. Only this opt-in local scenario uses GPS2_RAW for the tag.
+Open the Vite URL and select **Wildlife Tracker**. Click **Start Task 2 Demo** above Mission Workflow. The aircraft flies from its launch point to the animal at the search centre. On arrival the simulator holds position for a 30-second drop. The workflow shows the countdown and confirms deployment. The tag moves along a walking path and the aircraft departs, then orbits. The simulator sends two MAVLink GPS messages per sample, with a shared source timestamp. GPS_RAW_INT carries the aircraft position. Only this opt-in local scenario uses GPS2_RAW for the tag.
 
 Watch **Mission Workflow**. The first synchronized pair at least 100 m apart starts recording. The backend keeps tag fixes until five minutes elapse or the ten-minute practice window ends, whichever comes first. It continues checking separation until the window ends. Refreshing the browser restores the backend recording. Missing packets leave gaps. The same Wildlife Tracker dashboard selects practice automatically from the backend frame. Demo-only controls disappear. The map marker follows the newest tag fix, while the CSV preview and trail use the recorded window. A dropped connection marks positions stale. Fields without packet measurements display a dash.
 
@@ -16,7 +16,7 @@ Choose **Export Tracking CSV** when the tracking window ends, or download a part
 
 ## What the rehearsal demonstrates
 
-This is the tracking portion of Task 2. The route in `sim.py` is scripted. The first two workflow stages assume a located target and deployed tag. The aircraft GPS determines when the offset is reached together with the tag GPS. Only tag fixes enter the CSV. A partial download is available during the window. After it closes, export the final file and optionally mark the practice handoff in the dashboard. The handoff is a local operator acknowledgement.
+This is the tracking portion of Task 2. The route in `sim.py` is scripted. The first two stages rehearse a scripted approach and timed deployment. The aircraft GPS determines when the offset is reached together with the tag GPS. Only tag fixes enter the CSV. A partial download is available during the window. After it closes, export the final file and optionally mark the practice handoff in the dashboard. The handoff is a local operator acknowledgement.
 
 ## What remains for competition
 

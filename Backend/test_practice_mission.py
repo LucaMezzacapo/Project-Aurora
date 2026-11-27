@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from practice_mission import PracticeMission
+from practice_mission import PracticeMission, RELEASE_SECONDS
 
 EPOCH = 1785537182000000
 
@@ -9,6 +9,7 @@ EPOCH = 1785537182000000
 class PracticeMissionTest(unittest.TestCase):
     def setUp(self):
         self.run = PracticeMission()
+        self.run.elapsed_ms = RELEASE_SECONDS * 1000
 
     def sample(self, seconds, offset=20000, good=True, aircraft=True):
         fields = dict(time_usec=EPOCH + round(seconds * 1e6), fix_type=3, lon=-1107328077)
@@ -37,7 +38,23 @@ class PracticeMissionTest(unittest.TestCase):
 
     def test_early_window_cutoff(self):
         self.sample(0, offset=0)
-        self.sample(599)
-        self.sample(600)
-        self.sample(601)
+        self.sample(599 - RELEASE_SECONDS)
+        self.sample(600 - RELEASE_SECONDS)
+        self.sample(601 - RELEASE_SECONDS)
         self.assertEqual(len(self.run.fixes), 2)
+
+    def test_drop_precedes_tracking(self):
+        for elapsed, phase, remaining in [(-1, "ready", 0), (0, "approach", 0),
+                                          (12000, "dropping", 30), (41999, "dropping", 1)]:
+            self.run.elapsed_ms = elapsed
+            self.sample(elapsed / 1000)
+            self.assertEqual(self.run.snapshot()["phase"], phase)
+            self.assertEqual(self.run.snapshot()["dropSecondsLeft"], remaining)
+            self.assertIsNone(self.run.tag)
+            self.assertFalse(self.run.fixes)
+        self.run.elapsed_ms = 42000
+        self.sample(42, offset=0)
+        self.assertIsNotNone(self.run.tag)
+        self.assertIsNone(self.run.start)
+        self.sample(52)
+        self.assertEqual(len(self.run.fixes), 1)

@@ -68,6 +68,7 @@ function ResizeMap({
 }
 export default function TrackerMap({
   fixes,
+  showApproach,
   latest,
   uav,
   fresh,
@@ -76,6 +77,7 @@ export default function TrackerMap({
   visible,
 }: {
   fixes: TrackerFix[];
+  showApproach?: boolean;
   latest?: TrackerFix | null;
   uav: Position | null;
   fresh: boolean;
@@ -211,6 +213,11 @@ export default function TrackerMap({
           >
             <Tooltip>25 m target search area · demo centre</Tooltip>
           </Circle>
+          {showApproach && uav && (
+            <Polyline positions={[pair(uav), pair(SEARCH_CENTER)]} pathOptions={{ color: "#10e88a", dashArray: "5 5" }}>
+              <Tooltip>Approach to animal</Tooltip>
+            </Polyline>
+          )}
           {last && (
             <Circle
               center={pair(last)}

@@ -11,6 +11,7 @@ import time
 import os
 import random
 from pymavlink import mavutil
+from practice_mission import APPROACH_SECONDS, RELEASE_SECONDS, practice_phase
 
 HOST = "127.0.0.1:5760"
 CENTER_LAT = 49.2488
@@ -68,6 +69,9 @@ def main():
             msg = conn.recv_match(blocking=False)
             if msg is None:
                 break
+            if (PRACTICE and msg.get_type() == "NAMED_VALUE_INT"
+                    and msg.name == "T2_START" and msg.value == 1 and practice_epoch is None):
+                practice_epoch = time.monotonic()
             if msg.get_type() == 'SET_POSITION_TARGET_GLOBAL_INT':
                 target = (msg.lat_int / 1e7, msg.lon_int / 1e7, float(msg.alt))
                 mode = "guided"
@@ -79,19 +83,27 @@ def main():
 
         t = time.time() - start
 
+        speed = SPEED_MS
         if PRACTICE:
-            if practice_epoch is None:
-                practice_epoch = time.monotonic()
-            elapsed = time.monotonic() - practice_epoch
-            # Start alongside the deployed tag, then depart and orbit the search area.
-            radius = min(220, 12 * max(0, elapsed - 8))
-            theta = elapsed * SPEED_MS / 220
-            lat, lon = offset_to_latlon(50.0970884, -110.7328077,
-                                        radius * math.cos(theta), radius * math.sin(theta))
-            tag_lat, tag_lon = offset_to_latlon(50.0970884, -110.7328077,
-                                                35 * math.sin(elapsed / 36),
-                                                45 * math.sin(elapsed / 54))
-            hdg = math.atan2(math.cos(theta), -math.sin(theta))
+            elapsed = time.monotonic() - practice_epoch if practice_epoch is not None else -1
+            elapsed_ms = int(elapsed * 1000)
+            phase = practice_phase(elapsed_ms)
+            if phase == "released":
+                tracking_elapsed = elapsed - RELEASE_SECONDS
+                radius = min(220, 12 * max(0, tracking_elapsed - 8))
+                theta = tracking_elapsed * SPEED_MS / 220
+                north, east = radius * math.cos(theta), radius * math.sin(theta)
+                tag_lat, tag_lon = offset_to_latlon(50.0970884, -110.7328077,
+                                                    35 * math.sin(tracking_elapsed / 36),
+                                                    45 * math.sin(tracking_elapsed / 54))
+                hdg = math.atan2(math.cos(theta), -math.sin(theta))
+            else:
+                # Fly straight east from launch to the animal, then hold for the drop.
+                north = 0
+                east = -SPEED_MS * max(0, APPROACH_SECONDS - max(0, elapsed))
+                hdg = math.pi / 2
+                speed = SPEED_MS if phase == "approach" else 0
+            lat, lon = offset_to_latlon(50.0970884, -110.7328077, north, east)
         elif mode == "circle":
             theta = omega * t
             lat, lon = offset_to_latlon(CENTER_LAT, CENTER_LON, RADIUS_M * math.cos(theta), RADIUS_M * math.sin(theta))
@@ -116,7 +128,7 @@ def main():
             alt = target[2]
 
         heading = math.degrees(hdg) % 360
-        vn, ve = SPEED_MS * math.cos(hdg), SPEED_MS * math.sin(hdg)
+        vn, ve = speed * math.cos(hdg), speed * math.sin(hdg)
         roll = 0.0 if mode == "guided" else bank
         boot_ms = int(t * 1000)
 
@@ -134,7 +146,7 @@ def main():
             math.radians(heading if heading <= 180 else heading - 360),
             0.0, 0.0, 0.0,
         )
-        conn.mav.vfr_hud_send(SPEED_MS, SPEED_MS, int(heading), 55, alt, 0.0)
+        conn.mav.vfr_hud_send(speed, speed, int(heading), 55, alt, 0.0)
 
         if tick % 5 == 0:  # 1 Hz messages
             conn.mav.heartbeat_send(
@@ -144,6 +156,8 @@ def main():
                 0,
                 mavutil.mavlink.MAV_STATE_ACTIVE,
             )
+            if PRACTICE:
+                conn.mav.named_value_int_send(boot_ms, b"T2_TIME", elapsed_ms)
             fix_usec = time.time_ns() // 1000
             conn.mav.gps_raw_int_send(
                 fix_usec,
@@ -151,11 +165,11 @@ def main():
                 int(lat * 1e7), int(lon * 1e7), int(alt * 1000),
                 120,                            # eph -> HDOP 1.20
                 180,                            # epv
-                int(SPEED_MS * 100),
+                int(speed * 100),
                 int(heading * 100),
                 10 + (tick // 5) % 3,           # 10-12 satellites
             )
-            if PRACTICE:
+            if PRACTICE and phase == "released":
                 # GPS2 is reserved for the independent tag in this local scenario.
                 conn.mav.gps2_raw_send(fix_usec, 3, round(tag_lat * 1e7), round(tag_lon * 1e7),
                                        0, 100, 150, 65535, 65535, 12, 0, 0)

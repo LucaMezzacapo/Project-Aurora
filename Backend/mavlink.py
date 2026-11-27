@@ -41,7 +41,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -245,9 +245,13 @@ def mavlinkReader():
         
         if (PRACTICE and hb is not None and msg.get_srcSystem() == hb.get_srcSystem()
                 and msg.get_srcComponent() == hb.get_srcComponent()
-                and msg.get_type() in ("GPS_RAW_INT", "GPS2_RAW")):
+                and msg.get_type() in ("GPS_RAW_INT", "GPS2_RAW", "NAMED_VALUE_INT")):
             with telemetry_lock:
-                practice_mission.receive(msg)
+                if msg.get_type() == "NAMED_VALUE_INT":
+                    if msg.name == "T2_TIME":
+                        practice_mission.elapsed_ms = msg.value
+                else:
+                    practice_mission.receive(msg)
 
         if msg.get_type() == "NAMED_VALUE_FLOAT":
             if not SIM_PACKET_TEST:
@@ -476,6 +480,20 @@ async def antenna_disable():
     with antenna_lock:
         antenna_state["tracking_status"] = "disabled"
     return {"status": "disabled"}
+
+
+@app.post("/practice/task2/start")
+def start_task2_demo():
+    if not PRACTICE:
+        raise HTTPException(status_code=404, detail="Task 2 practice is disabled")
+    with telemetry_lock:
+        elapsed = practice_mission.elapsed_ms
+    if connection is None or elapsed is None:
+        raise HTTPException(status_code=503, detail="Waiting for the practice simulator")
+    if elapsed < 0:
+        with send_lock:
+            connection.mav.named_value_int_send(0, b"T2_START", 1)
+    return {"accepted": True}
 
 
 @app.websocket("/ws/telemetry")
